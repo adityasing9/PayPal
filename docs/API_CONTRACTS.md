@@ -469,15 +469,60 @@ The backend enforces rate limiting with tiered limits:
 }
 ```
 
-### 6.3 PayPal Webhook Ingestion
+### 6.3 PayPal Return Redirect Trampoline
+- **Endpoint:** `GET /api/payments/return`
+- **Access:** Public (Incoming browser navigation from PayPal Sandbox)
+- **Query Parameters:** `token=<paypal_order_id>`, `return_token=<ephemeral_token>`
+- **Security Invariant:** **NEVER captures funds and DOES NOT consume the return token.**
+- **Behavior:** Validates format and returns an HTTP 302 redirect to the client SPA landing page passing the return token in the URL fragment:
+  `${APP_ORIGIN}/checkout/return?orderId=<orderId>#return_token=<returnToken>`
+- **Fragment Security Invariants:**
+  1. *HTTP Transmission vs Browser History:* URL fragments are never sent across the network in HTTP request lines or `Referer` headers, but remain in the browser's address bar/history until explicitly cleared.
+  2. *Immediate Extraction & Sanitization:* The client SPA must extract the token immediately upon load and strip the fragment from the address bar using `window.history.replaceState(null, '', window.location.pathname + window.location.search)`.
+  3. *Zero Persistence / Analytics Isolation:* The token must never be logged, saved in `localStorage`, or sent to third-party analytics.
+  4. *Referrer-Policy:* Backend enforces `Referrer-Policy: strict-origin-when-cross-origin` to block parameter leakage on cross-origin requests.
+
+### 6.4 Recover Return Session
+- **Endpoint:** `POST /api/payments/recover-session`
+- **Access:** Public / Same-Site SPA
+- **Request Body:**
+```json
+{
+  "orderId": "PAYPAL_ORDER_88392104",
+  "returnToken": "ret_tok_a8f9c1d2e3b4"
+}
+```
+- **Security Invariants:**
+  1. **Single-Use Atomic Consumption:** Atomically transitions token state `PENDING` $\to$ `CONSUMED`. Replay attempts fail with `401 INVALID_OR_EXPIRED_RETURN_TOKEN`.
+  2. **Zero Trust in Client User ID:** Binds session exclusively to the backend's verified `PaymentTransaction.userId`.
+  3. **Zero Fund Capture Authority:** Strictly read/session recovery only.
+- **Response (200 OK):** Sets HTTP-only `SameSite=Strict` `intentlock_session` cookie; returns:
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Session context recovered successfully. Ready for explicit capture confirmation.",
+    "orderId": "PAYPAL_ORDER_88392104",
+    "status": "CREATED",
+    "amountMinor": 11790,
+    "currency": "USD"
+  },
+  "timestamp": "2026-11-07T18:03:15.000Z"
+}
+```
+
+### 6.5 PayPal Webhook Ingestion
 - **Endpoint:** `POST /api/payments/webhooks`
 - **Access:** Public (Verified via PayPal Certificate & Transmission Headers)
 - **Required Headers:**
   - `paypal-auth-algo`
-  - `paypal-cert-url`
+  - `paypal-cert-url` (Strictly `https:` scheme, standard port 443, and exact host matching `api.paypal.com` or `api.sandbox.paypal.com`)
   - `paypal-transmission-id`
   - `paypal-transmission-sig`
   - `paypal-transmission-time`
+- **Security Invariants:**
+  - Validates certificate URL against SSRF: allows only exact hosts `api.paypal.com` and `api.sandbox.paypal.com`; rejects all other subdomains, IP literals, unexpected ports, loopback/private IPs, and unsafe redirects before making outbound requests.
+  - Quarantines mock webhook headers (`X-IntentLock-Mock-Webhook: true`); strictly rejects mock webhooks in production (`NODE_ENV === 'production'`).
 - **Response (200 OK):**
 ```json
 {

@@ -93,7 +93,19 @@ The Security Engine evaluates transactions into three unambiguous outcomes:
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Clarification on Prompt Injection & Untrusted Content
+### 3.1 REVIEW Acknowledgment & Authorization Lifecycle
+When `SecurityFirewallService` identifies non-critical specification differences (e.g. tactile switches proposed when linear was requested), it returns `decision: 'REVIEW'` and strictly sets `authorization: null`.
+
+To proceed with an order that triggered `REVIEW`, the following server-controlled acknowledgment flow is strictly enforced:
+1. **Drawer Diff Display:** The frontend renders the IntentLock Security Inspection Drawer, displaying the server-calculated specification differences (`specDifferences: [{ field, requested, actual }]`).
+2. **Cryptographic & Version Binding:** The user's explicit acknowledgment must be bound to:
+   - The authenticated user's session (`userId`).
+   - The exact proposal identifier (`proposalId`) and proposal version.
+   - The SHA-256 digest of the frozen checkout snapshot (`snapshotHash`).
+3. **Server-Side Validation:** The backend compares the user-submitted acknowledged diff fields against the exact server-calculated differences. If the proposal or checkout snapshot has mutated in the interim, the acknowledgment is immediately invalidated.
+4. **Audit Logging:** The exact acknowledged diff codes, timestamp, proposal ID, snapshot hash, and user action are recorded immutably in `audit_logs`.
+5. **Strict Re-evaluation:** The proposal is re-evaluated through the existing `SecurityFirewallService`. If all hard rules pass (budget within ceiling, payee merchant verified, recurring billing cycle == 0) and all spec differences are cleared by verified user acknowledgment, the backend issues an Ed25519-signed `AuthorizationRecord`.
+6. **Hard Constraint Invariant:** Hard security constraints are **never waived** by user acknowledgment. `BLOCK` outcomes can **never** produce an authorization.
 1. **Passive Data Invariant:** All external catalog text (product titles, descriptions, technical specifications, seller comments) is treated strictly as untrusted data. It is never concatenated into system instructions that control downstream tools or payment execution.
 2. **No False-Positive Blocks:** Mere detection of suspicious phrases or prompt-like vocabulary in product marketing or user reviews (e.g., a review explaining "how to override default keyboard firmware") does **not** trigger an automatic `BLOCK`.
 3. **Trigger for BLOCK:** A `BLOCK` is triggered only if:
@@ -229,6 +241,26 @@ To guarantee tamper-evidence beyond the database boundary, audit chain tips are 
 
 ---
 
+## 7.1 PayPal Webhook Verification & SSRF Defense
+
+Incoming PayPal webhook events (`POST /api/payments/webhooks`) are validated under strict cryptographic and network security rules:
+1. **SSRF Prevention & Exact Host Validation:**
+   - The certificate URL provided in the `PAYPAL-CERT-URL` header must strictly use the `https:` scheme.
+   - The parsed hostname must strictly and exactly match `api.paypal.com` or `api.sandbox.paypal.com`. All other subdomains, arbitrary domains, IP literals, and private/loopback destinations are rejected.
+   - The URL must not specify an unexpected port (only default HTTPS port 443 is permitted).
+   - Certificate fetching strictly rejects unsafe HTTP redirects.
+   - The server **never** fetches arbitrary, unvalidated, or non-PayPal URLs supplied in webhook headers.
+2. **Cryptographic Validation:**
+   - Validates algorithm header (`PAYPAL-AUTH-ALGO`, e.g. `SHA256withRSA`).
+   - Asserts timestamp freshness (`PAYPAL-TRANSMISSION-TIME` within allowable drift window).
+   - Verifies the signature of the concatenation `transmissionId|transmissionTime|webhookId|crc32(rawBody)` using the public key from the validated certificate.
+3. **Mock Webhook Quarantine:**
+   - Test fixtures in `src/adapters/paypalMockAdapter.js` are explicitly tagged (`X-IntentLock-Mock-Webhook: true`, `mockEvent: true`).
+   - In production (`NODE_ENV === 'production'`), mock webhook headers or payloads are strictly rejected with `403 Forbidden`.
+   - Simulated test webhooks are completely quarantined from live PayPal verification.
+
+---
+
 ## 8. PayPal Checkout & Return Flow Cookie Test Matrix
 
 > **Important Architectural Reality:** Browsers strictly **omit `SameSite=Strict` cookies** on cross-site top-level navigations (e.g., when PayPal redirects the user back to `https://our-app.com/checkout/return?token=...`). The system must **never** assume that `SameSite=Strict` cookies will be present on incoming redirect requests.
@@ -254,9 +286,17 @@ To maintain the highest security posture without weakening cookie configuration,
 
 ### Test Case 3: Secure Session Recovery When Strict Cookie Is Unavailable
 - **Mechanism:** The client recovers authenticated context to finalize the purchase after a cross-site redirect.
-- **Recovery Strategies:**
-  1. **Client-Side Intermediate Landing Page:** When the browser loads the SPA at `/checkout/return`, the client enters a first-party origin context. Subsequent internal `fetch` requests initiated by client JavaScript to `/api/...` are first-party same-site requests; the browser attaches the existing `SameSite=Strict` cookie normally.
-  2. **Ephemeral Return Token (Cross-Tab / Loss Recovery):** At order creation, the backend generates an ephemeral, cryptographically secure return token (valid for 60 seconds) bound to the `orderId` and user session. The landing page exchanges this token via a same-site `POST /api/payments/recover-session` to re-verify context before initiating capture.
+- **Recovery Invariants & Safeguards:**
+  1. **Single-Use Narrowly Scoped Credential:** The ephemeral return token is valid for 60 seconds and strictly bound to the stored `PaymentTransaction` record, `userId`, and `paypalOrderId`.
+  2. **Zero Trust in Client-Supplied User ID:** The backend retrieves the user identity exclusively from the verified transaction record in the database; client-supplied `userId` is never trusted.
+  3. **Atomic Consumption Exactly Once:** `consumeReturnToken` atomically updates `returnTokenStatus: 'PENDING' -> 'CONSUMED'`. Replay attempts fail immediately with `401 INVALID_OR_EXPIRED_RETURN_TOKEN`.
+  4. **Leakage Prevention via URL Fragment, Immediate Sanitization & Strict Referrer-Policy:**
+     - The return token is passed via URL fragment (`#return_token=...`) on the client redirect and exchanged via the JSON body of a same-site `POST /api/payments/recover-session`.
+     - *HTTP Transmission vs Browser History:* URL fragments avoid HTTP transmission to web servers (never sent in request lines or `Referer` headers), but can remain in the browser session history until explicitly removed.
+     - *Immediate Extraction & Sanitization:* The client SPA must extract the token immediately upon mounting and strip the fragment from the address bar using `window.history.replaceState(null, '', window.location.pathname + window.location.search)`.
+     - *Third-Party & Analytics Isolation:* The token must never be logged, persisted in browser storage (`localStorage`/`sessionStorage`), or transmitted to client-side analytics or third-party scripts.
+     - *Referrer-Policy:* Helmet configures `Referrer-Policy: strict-origin-when-cross-origin` to ensure outgoing referrers never leak sensitive path or parameter context.
+  5. **Zero Fund Capture Authority:** Session recovery only restores session context and returns the order summary; it has **zero capability to capture funds**.
 - **Cookie Policy Tradeoff & Justification:**
   - *Retaining `SameSite=Strict`:* Provides defense-in-depth against all CSRF attack vectors. Requires the intermediate landing page or in-window SDK modal pattern.
   - *Documented Alternative (`SameSite=Lax`):* `SameSite=Lax` permits cookies on top-level safe GET cross-site navigations. If the team ever adopts `SameSite=Lax` to simplify redirect handling, it must be accompanied by strict anti-CSRF token checks on all state-changing endpoints. However, `SameSite=Strict` remains our ratified default.
@@ -278,3 +318,16 @@ To maintain the highest security posture without weakening cookie configuration,
     - Backend returns the existing `PaymentTransaction` record with `200 OK`.
     - Backend **NEVER** calls the PayPal Capture API a second time.
   - If an attacker submits a consumed authorization nonce under a *different* idempotency key, the backend returns `409 Conflict: Replay Detected`.
+
+---
+
+## 8.1 Testing Assurance Hierarchy & Environment Boundaries
+
+To ensure strict engineering integrity, IntentLock explicitly delineates four distinct levels of verification:
+
+1. **Unit Tests:** Isolated tests verifying pure algorithmic logic, RFC 8785 canonical serialization, Ed25519 signature mathematics, BigInt minor-unit currency calculations, and Zod input schema validations.
+2. **In-Memory Application Integration Tests:** Tests exercising the real Express application pipeline (`dispatchRequest`), routing, Helmet security headers, rate limiting, cookie parsing, CSRF enforcement, and atomic repository operations against in-memory collection models.
+3. **Real MongoDB Replica-Set Integration (External Gate):** Multi-node transactional integrity, causal consistency, document write concerns (`w: "majority"`), and concurrent lock contention tested against a live MongoDB daemon.
+4. **Genuine PayPal Sandbox Integration (External Gate):** Live TLS mutual authentication, real PayPal OAuth2 access token issuance, genuine sandbox order creation, customer sandbox approvals, and certificate chain verification for incoming webhooks.
+
+> **Assurance Invariant:** Simulated in-memory test suites establish architectural, logical, and cryptographic correctness within the application codebase. They **do not claim** to prove live external network connectivity, MongoDB replica-set transaction semantics, or genuine third-party payment settlement. Live external gates remain distinct, explicit verification steps.
