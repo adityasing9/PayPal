@@ -1,0 +1,859 @@
+
+@import "tailwindcss";
+
+/* =========================================
+   1. INTENTLOCK BRAND VARIABLES
+========================================= */
+
+:root {
+  --brand-primary: #0D9488;
+  --brand-hover: #0F766E;
+  --brand-dark: #115E59;
+  --brand-accent: #F59E0B;
+
+  --page-background: #F7F5F0;
+  --card-background: #FFFFFF;
+
+  --text-primary: #1C1917;
+  --text-secondary: #78716C;
+
+  --border-color: #E7E5E4;
+
+  --teal-light: #E6F4F1;
+  --teal-border: #BFE7DF;
+}
+
+/* =========================================
+   2. GLOBAL BASE STYLES
+========================================= */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--page-background);
+  color: var(--text-primary);
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 300ms ease, color 300ms ease;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+.app-shell {
+  min-height: 100vh;
+  background: var(--page-background);
+  color: var(--text-primary);
+  transition: background-color 300ms ease, color 300ms ease;
+}
+
+/* =========================================
+   3. CARD HOVER EFFECT
+========================================= */
+
+.card {
+  transition:
+    transform 250ms ease,
+    box-shadow 250ms ease,
+    border-color 250ms ease;
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px rgba(13, 148, 136, 0.10);
+  border-color: var(--teal-border);
+}
+
+/* =========================================
+   4. PRIMARY GRADIENT BUTTON
+========================================= */
+
+.gradient-button {
+  background: linear-gradient(
+    135deg,
+    var(--brand-primary),
+    var(--brand-hover)
+  );
+  color: white;
+
+  transition:
+    transform 200ms ease,
+    box-shadow 200ms ease,
+    filter 200ms ease;
+
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.2);
+}
+
+.gradient-button:hover {
+  background: linear-gradient(
+    135deg,
+    var(--brand-hover),
+    var(--brand-dark)
+  );
+  box-shadow: 0 8px 20px rgba(13, 148, 136, 0.25);
+}
+
+.gradient-button:active {
+  transform: scale(0.97);
+}
+
+/* =========================================
+   5. GENERAL BUTTON INTERACTIONS
+========================================= */
+
+button {
+  transition:
+    transform 180ms ease,
+    background-color 200ms ease,
+    box-shadow 200ms ease,
+    color 200ms ease;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* =========================================
+   6. SECURITY ACTIVE PULSE
+========================================= */
+
+@keyframes securityPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5);
+  }
+
+  70% {
+    box-shadow: 0 0 0 7px rgba(34, 197, 94, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+  }
+}
+
+.security-pulse {
+  animation: securityPulse 1.8s infinite;
+}
+
+/* =========================================
+   7. SHIELD PULSE
+========================================= */
+
+@keyframes shieldPulse {
+  0% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 rgba(13, 148, 136, 0));
+  }
+
+  45% {
+    transform: scale(1.25);
+    filter: drop-shadow(0 0 8px rgba(13, 148, 136, 0.55));
+  }
+
+  75% {
+    transform: scale(0.95);
+  }
+
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 rgba(13, 148, 136, 0));
+  }
+}
+
+.shield-pulse {
+  animation: shieldPulse 650ms ease-out;
+}
+
+/* =========================================
+   8. DASHBOARD ACTIVITY ANIMATION
+========================================= */
+
+@keyframes activityEnter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* =========================================
+   9. CHECKOUT SECURITY SCANNER
+========================================= */
+
+.scanner-active {
+  animation: scannerGlow 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes scannerGlow {
+  from {
+    box-shadow: 0 0 8px rgba(13, 148, 136, 0.15);
+  }
+
+  to {
+    box-shadow: 0 0 28px rgba(13, 148, 136, 0.35);
+  }
+}
+
+.scanner-line {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  height: 3px;
+  top: 12%;
+  border-radius: 10px;
+  background: var(--brand-primary);
+  box-shadow: 0 0 12px var(--brand-primary);
+  animation: scanSweep 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes scanSweep {
+  from {
+    top: 12%;
+    opacity: 0.5;
+  }
+
+  to {
+    top: 85%;
+    opacity: 1;
+  }
+}
+
+/* Scanner progress */
+
+.scanner-progress {
+  width: 35%;
+  animation: scanProgress 2.5s ease-in-out forwards;
+}
+
+@keyframes scanProgress {
+  from {
+    width: 0%;
+  }
+
+  to {
+    width: 100%;
+  }
+}
+
+/* Approved animation */
+
+.scan-approved {
+  animation: approvedPop 500ms ease-out;
+}
+
+@keyframes approvedPop {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.5;
+  }
+
+  65% {
+    transform: scale(1.12);
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Sparkle effects */
+
+.sparkle-one {
+  animation: sparkle 800ms ease-in-out infinite alternate;
+}
+
+.sparkle-two {
+  animation: sparkle 700ms ease-in-out 150ms infinite alternate;
+}
+
+@keyframes sparkle {
+  from {
+    transform: scale(0.5) rotate(-20deg);
+    opacity: 0.3;
+  }
+
+  to {
+    transform: scale(1.2) rotate(20deg);
+    opacity: 1;
+  }
+}
+
+/* Blocked animation */
+
+.scan-blocked {
+  animation: blockedShake 450ms ease-in-out;
+}
+
+@keyframes blockedShake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+
+  20%, 60% {
+    transform: translateX(-6px);
+  }
+
+  40%, 80% {
+    transform: translateX(6px);
+  }
+}
+
+/* =========================================
+   10. PAGE TRANSITIONS
+========================================= */
+
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-transition {
+  animation: pageEnter 350ms ease-out both;
+  min-height: calc(100vh - 72px);
+}
+
+/* =========================================
+   11. NAVBAR
+========================================= */
+
+header {
+  transition:
+    background-color 300ms ease,
+    border-color 300ms ease,
+    box-shadow 300ms ease;
+
+  box-shadow: 0 2px 12px rgba(28, 25, 23, 0.03);
+}
+
+header button,
+header a {
+  transition: all 200ms ease;
+}
+
+/* =========================================
+   12. LIGHT THEME BACKGROUNDS
+========================================= */
+
+html:not(.dark) body,
+html:not(.dark) .app-shell {
+  background-color: var(--page-background);
+  color: var(--text-primary);
+}
+
+html:not(.dark) .bg-white {
+  background-color: var(--card-background);
+}
+
+html:not(.dark) .bg-slate-50 {
+  background-color: var(--page-background);
+}
+
+html:not(.dark) .bg-slate-100 {
+  background-color: #EEECE6;
+}
+
+/* =========================================
+   13. LIGHT THEME TEXT
+========================================= */
+
+html:not(.dark) .text-slate-900,
+html:not(.dark) .text-slate-800 {
+  color: var(--text-primary);
+}
+
+html:not(.dark) .text-slate-700,
+html:not(.dark) .text-slate-600,
+html:not(.dark) .text-slate-500 {
+  color: var(--text-secondary);
+}
+
+/* =========================================
+   14. LIGHT THEME BORDERS
+========================================= */
+
+html:not(.dark) .border-slate-100,
+html:not(.dark) .border-slate-200,
+html:not(.dark) .border-slate-300 {
+  border-color: var(--border-color);
+}
+
+/* =========================================
+   15. REMOVE BLUE AND PURPLE BRAND COLORS
+========================================= */
+
+/* Soft blue, indigo, purple and violet backgrounds */
+
+html:not(.dark) .bg-blue-50,
+html:not(.dark) .bg-blue-100,
+html:not(.dark) .bg-indigo-50,
+html:not(.dark) .bg-indigo-100,
+html:not(.dark) .bg-purple-50,
+html:not(.dark) .bg-purple-100,
+html:not(.dark) .bg-violet-50,
+html:not(.dark) .bg-violet-100 {
+  background-color: var(--teal-light) !important;
+  color: var(--brand-hover) !important;
+}
+
+/* Solid blue and purple backgrounds */
+
+html:not(.dark) .bg-blue-500,
+html:not(.dark) .bg-blue-600,
+html:not(.dark) .bg-blue-700,
+html:not(.dark) .bg-indigo-500,
+html:not(.dark) .bg-indigo-600,
+html:not(.dark) .bg-indigo-700,
+html:not(.dark) .bg-purple-500,
+html:not(.dark) .bg-purple-600,
+html:not(.dark) .bg-purple-700,
+html:not(.dark) .bg-violet-500,
+html:not(.dark) .bg-violet-600,
+html:not(.dark) .bg-violet-700 {
+  background-color: var(--brand-primary) !important;
+  color: white !important;
+}
+
+/* Blue and purple text */
+
+html:not(.dark) .text-blue-400,
+html:not(.dark) .text-blue-500,
+html:not(.dark) .text-blue-600,
+html:not(.dark) .text-blue-700,
+html:not(.dark) .text-blue-800,
+html:not(.dark) .text-blue-900,
+html:not(.dark) .text-indigo-400,
+html:not(.dark) .text-indigo-500,
+html:not(.dark) .text-indigo-600,
+html:not(.dark) .text-indigo-700,
+html:not(.dark) .text-indigo-800,
+html:not(.dark) .text-purple-400,
+html:not(.dark) .text-purple-500,
+html:not(.dark) .text-purple-600,
+html:not(.dark) .text-purple-700,
+html:not(.dark) .text-violet-400,
+html:not(.dark) .text-violet-500,
+html:not(.dark) .text-violet-600,
+html:not(.dark) .text-violet-700 {
+  color: var(--brand-primary) !important;
+}
+
+/* Blue and purple borders */
+
+html:not(.dark) .border-blue-100,
+html:not(.dark) .border-blue-200,
+html:not(.dark) .border-indigo-100,
+html:not(.dark) .border-indigo-200,
+html:not(.dark) .border-purple-100,
+html:not(.dark) .border-purple-200,
+html:not(.dark) .border-violet-100,
+html:not(.dark) .border-violet-200 {
+  border-color: var(--teal-border) !important;
+}
+
+/* Blue and purple hover backgrounds */
+
+html:not(.dark) .hover\:bg-blue-50:hover,
+html:not(.dark) .hover\:bg-blue-100:hover,
+html:not(.dark) .hover\:bg-indigo-50:hover,
+html:not(.dark) .hover\:bg-indigo-100:hover,
+html:not(.dark) .hover\:bg-purple-50:hover,
+html:not(.dark) .hover\:bg-purple-100:hover,
+html:not(.dark) .hover\:bg-violet-50:hover,
+html:not(.dark) .hover\:bg-violet-100:hover {
+  background-color: #D1EEE8 !important;
+}
+
+/* Solid button hover */
+
+html:not(.dark) .hover\:bg-blue-700:hover,
+html:not(.dark) .hover\:bg-indigo-700:hover,
+html:not(.dark) .hover\:bg-purple-700:hover,
+html:not(.dark) .hover\:bg-violet-700:hover {
+  background-color: var(--brand-hover) !important;
+}
+
+/* Hover text */
+
+html:not(.dark) .hover\:text-blue-700:hover,
+html:not(.dark) .hover\:text-indigo-700:hover,
+html:not(.dark) .hover\:text-purple-700:hover,
+html:not(.dark) .hover\:text-violet-700:hover {
+  color: var(--brand-hover) !important;
+}
+
+/* Shadows */
+
+html:not(.dark) .shadow-blue-100,
+html:not(.dark) .shadow-indigo-100,
+html:not(.dark) .shadow-indigo-200,
+html:not(.dark) .shadow-purple-100 {
+  --tw-shadow-color: rgba(13, 148, 136, 0.15);
+}
+
+/* Focus rings */
+
+html:not(.dark) .focus\:ring-blue-500:focus,
+html:not(.dark) .focus\:ring-indigo-500:focus,
+html:not(.dark) .focus\:ring-purple-500:focus,
+html:not(.dark) .focus\:ring-violet-500:focus {
+  --tw-ring-color: var(--brand-primary) !important;
+}
+
+/* =========================================
+   16. PRIMARY BUTTONS AND TOGGLES
+========================================= */
+
+html:not(.dark) .gradient-button {
+  background: linear-gradient(
+    135deg,
+    var(--brand-primary),
+    var(--brand-hover)
+  ) !important;
+
+  color: white !important;
+}
+
+html:not(.dark) button[role="switch"][aria-checked="true"],
+html:not(.dark) [role="switch"][aria-checked="true"] {
+  background-color: var(--brand-primary) !important;
+}
+
+/* =========================================
+   17. BRAND SHADOWS AND HOVER EFFECTS
+========================================= */
+
+html:not(.dark) .card:hover {
+  box-shadow: 0 12px 30px rgba(13, 148, 136, 0.10);
+  border-color: var(--teal-border);
+}
+
+html:not(.dark) .hover\:bg-slate-100:hover {
+  background-color: var(--teal-light);
+}
+
+/* =========================================
+   18. AMBER ACCENT
+========================================= */
+
+html:not(.dark) .text-amber-500,
+html:not(.dark) .text-amber-600 {
+  color: var(--brand-accent);
+}
+
+/* =========================================
+   19. DARK MODE
+========================================= */
+
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body,
+html.dark .app-shell {
+  background: #0B1120 !important;
+  color: #E2E8F0 !important;
+}
+
+/* Navbar */
+
+html.dark header {
+  background: rgba(11, 17, 32, 0.95) !important;
+  border-color: #26364D !important;
+  box-shadow: 0 2px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* White containers */
+
+html.dark .bg-white {
+  background-color: #111C2F !important;
+}
+
+/* Light backgrounds */
+
+html.dark .bg-slate-50 {
+  background-color: #162338 !important;
+}
+
+html.dark .bg-slate-100 {
+  background-color: #1E293B !important;
+}
+
+/* Text */
+
+html.dark .text-slate-900 {
+  color: #F8FAFC !important;
+}
+
+html.dark .text-slate-800 {
+  color: #E2E8F0 !important;
+}
+
+html.dark .text-slate-700,
+html.dark .text-slate-600,
+html.dark .text-slate-500 {
+  color: #CBD5E1 !important;
+}
+
+/* Borders */
+
+html.dark .border-slate-100,
+html.dark .border-slate-200,
+html.dark .border-slate-300 {
+  border-color: #26364D !important;
+}
+
+/* Replace blue and purple backgrounds with dark teal */
+
+html.dark .bg-blue-50,
+html.dark .bg-blue-100,
+html.dark .bg-indigo-50,
+html.dark .bg-indigo-100,
+html.dark .bg-purple-50,
+html.dark .bg-purple-100,
+html.dark .bg-violet-50,
+html.dark .bg-violet-100 {
+  background-color: #123C3A !important;
+  color: #5EEAD4 !important;
+}
+
+/* Solid blue/purple backgrounds */
+
+html.dark .bg-blue-500,
+html.dark .bg-blue-600,
+html.dark .bg-indigo-500,
+html.dark .bg-indigo-600,
+html.dark .bg-purple-500,
+html.dark .bg-purple-600,
+html.dark .bg-violet-500,
+html.dark .bg-violet-600 {
+  background-color: #0F766E !important;
+  color: white !important;
+}
+
+/* Brand text */
+
+html.dark .text-blue-400,
+html.dark .text-blue-500,
+html.dark .text-blue-600,
+html.dark .text-blue-700,
+html.dark .text-indigo-400,
+html.dark .text-indigo-500,
+html.dark .text-indigo-600,
+html.dark .text-indigo-700,
+html.dark .text-purple-400,
+html.dark .text-purple-500,
+html.dark .text-purple-600,
+html.dark .text-purple-700,
+html.dark .text-violet-400,
+html.dark .text-violet-500,
+html.dark .text-violet-600,
+html.dark .text-violet-700 {
+  color: #5EEAD4 !important;
+}
+
+/* Navbar buttons */
+
+html.dark header button {
+  border-color: #334155;
+  background-color: #172338;
+  color: #E2E8F0;
+}
+
+html.dark header button:hover {
+  background-color: #26364D;
+}
+
+/* Inputs */
+
+html.dark input,
+html.dark textarea,
+html.dark select {
+  background-color: #111C2F;
+  color: #F8FAFC;
+  border-color: #334155;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #94A3B8;
+}
+
+/* Cards */
+
+html.dark .card {
+  border-color: #26364D;
+}
+
+html.dark .card:hover {
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
+}
+
+/* Dark mode teal buttons */
+
+html.dark .gradient-button {
+  background: linear-gradient(135deg, #0F766E, #115E59) !important;
+  color: white !important;
+}
+
+html.dark button[role="switch"][aria-checked="true"],
+html.dark [role="switch"][aria-checked="true"] {
+  background-color: #0D9488 !important;
+}
+
+/* =========================================
+   20. TOAST NOTIFICATIONS
+========================================= */
+
+@keyframes toastEnter {
+  from {
+    opacity: 0;
+    transform: translateX(35px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.toast-enter {
+  animation: toastEnter 300ms ease-out both;
+}
+
+html.dark .toast-enter {
+  background-color: #111C2F !important;
+  border-color: #334155 !important;
+}
+
+/* =========================================
+   21. SKELETON LOADING ANIMATION
+========================================= */
+
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: #E7E5E4;
+}
+
+.skeleton-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.7),
+    transparent
+  );
+
+  animation: skeletonShimmer 1.5s infinite;
+}
+
+@keyframes skeletonShimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+html.dark .skeleton-shimmer {
+  background: #26364D;
+}
+
+html.dark .skeleton-shimmer::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.08),
+    transparent
+  );
+}
+
+/* =========================================
+   22. AI TYPING ANIMATION
+========================================= */
+
+.typing-cursor {
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--brand-primary);
+  animation: cursorBlink 700ms steps(2, start) infinite;
+}
+
+@keyframes cursorBlink {
+  to {
+    visibility: hidden;
+  }
+}
+
+/* =========================================
+   23. ACCESSIBILITY - REDUCED MOTION
+========================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .security-pulse,
+  .shield-pulse,
+  .scanner-active,
+  .scanner-line,
+  .scanner-progress,
+  .scan-approved,
+  .scan-blocked,
+  .sparkle-one,
+  .sparkle-two,
+  .page-transition,
+  .toast-enter,
+  .skeleton-shimmer::after,
+  .typing-cursor {
+    animation: none !important;
+  }
+
+  body,
+  .app-shell {
+    transition: none !important;
+  }
+
+  header,
+  header button,
+  header a {
+    transition: none !important;
+  }
+}
