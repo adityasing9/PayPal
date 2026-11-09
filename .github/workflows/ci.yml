@@ -1,0 +1,85 @@
+name: CI Verification
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-verification:
+    name: Backend Test & Lint Verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NODE_ENV: test
+      USE_MOCK_SECURITY: "true"
+      USE_MOCK_PAYPAL: "true"
+      SESSION_SECRET: "ci-test-session-secret-at-least-32-chars-long!"
+      CSRF_SECRET: "ci-test-csrf-secret-at-least-32-chars-long!"
+      ED25519_KEY_ID: "KEY_CI_TEST_V1"
+      HIGH_VALUE_ANCHOR_THRESHOLD_MINOR: "20000"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js (22.x)
+        uses: actions/setup-node@1d43b558a28a475868693a5581bf06cb059d64d1 # v4.2.0
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install backend dependencies (clean install)
+        run: npm ci
+
+      - name: Run backend automated test suite (Vitest)
+        run: npm test
+
+      - name: Run backend code style and quality check (ESLint)
+        run: npm run lint
+
+  frontend-verification:
+    name: Frontend Build & Lint Verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js (22.x)
+        uses: actions/setup-node@1d43b558a28a475868693a5581bf06cb059d64d1 # v4.2.0
+        with:
+          node-version: 22.x
+
+      - name: Check for frontend package configuration
+        id: check_frontend
+        run: |
+          if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
+            echo "frontend_exists=true" >> "$GITHUB_OUTPUT"
+            echo "frontend/package.json detected. Proceeding with frontend verification."
+          else
+            echo "frontend_exists=false" >> "$GITHUB_OUTPUT"
+            echo "frontend/package.json not present on this branch. Skipping frontend checks."
+          fi
+
+      - name: Install frontend dependencies independently
+        if: steps.check_frontend.outputs.frontend_exists == 'true'
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend linter
+        if: steps.check_frontend.outputs.frontend_exists == 'true'
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Run frontend production build
+        if: steps.check_frontend.outputs.frontend_exists == 'true'
+        working-directory: frontend
+        run: npm run build
