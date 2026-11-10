@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "v1.0.0-interop",
+  "title": "IntentLock Cross-Language Cryptographic Interoperability Test Vectors",
+  "author": "Member 2 (IntentLock Commerce Security Engine)",
+  "target": "Member 3 (Payment Orchestration / PayPal Gateway)",
+  "standards": {
+    "ed25519": "RFC 8032 Edwards-curve Digital Signature Algorithm",
+    "canonicalization": "RFC 8785 JSON Canonicalization Scheme (JCS)",
+    "hash": "SHA-512 (FIPS 180-4)",
+    "spki_der_prefix": "302a300506032b6570032100"
+  },
+  "trusted_public_key_hex": "4df93f582d2b31f519c1982bb55c1aa46b4d64498fa04164eeb36c44c0f1cca9",
+  "test_vectors": [
+    {
+      "id": "vector_1_simple_message",
+      "description": "Standard RFC 8032 Ed25519 signature of raw UTF-8 string bytes",
+      "message_utf8": "hello world from intentlock",
+      "signature_hex": "9c3489590e8f08544f610b5bce4aa0df810d8f315dd186f24774deb4f61445859a299bb635d59c94978a3ba383109d324f9fc07fae62aa013a75707b84f3280e",
+      "expected_verification": true
+    },
+    {
+      "id": "vector_2_rfc8785_canonicalization",
+      "description": "RFC 8785 canonical JSON with UTF-16 code unit key sorting and integer-safe cents",
+      "raw_object": {
+        "intent_id": "CART_TX_12345",
+        "buyer_id": "USER_9988",
+        "merchant_domain": "store.google.com",
+        "total_cents": 107900,
+        "currency": "USD",
+        "items": [
+          {
+            "item_id": "ITEM_01",
+            "name": "Pixel 10 Pro",
+            "unit_price_cents": 99900,
+            "qty": 1
+          }
+        ]
+      },
+      "canonical_json": "{\"buyer_id\":\"USER_9988\",\"currency\":\"USD\",\"intent_id\":\"CART_TX_12345\",\"items\":[{\"item_id\":\"ITEM_01\",\"name\":\"Pixel 10 Pro\",\"qty\":1,\"unit_price_cents\":99900}],\"merchant_domain\":\"store.google.com\",\"total_cents\":107900}",
+      "sha512_digest": "ffce4b5396396601b6d6b2e87a03da57b8c79105b3405b389545e437588e5435448884871be51650c8dadb948202128beb0fbf45437fcabbd70c81d57787ff92"
+    },
+    {
+      "id": "vector_3_compact_authorization_token",
+      "description": "Compact 3-segment token: header.claims.signature using integer Unix seconds timestamps",
+      "claims": {
+        "token_id": "tok_test_12345678",
+        "intent_id": "CART_TX_12345",
+        "intent_hash": "ffce4b5396396601b6d6b2e87a03da57b8c79105b3405b389545e437588e5435448884871be51650c8dadb948202128beb0fbf45437fcabbd70c81d57787ff92",
+        "nonce": "nonce_abcdef123456",
+        "issued_at": 1794315000,
+        "expires_at": 1794315060
+      },
+      "claims_raw": "tok_test_12345678:CART_TX_12345:ffce4b5396396601b6d6b2e87a03da57b8c79105b3405b389545e437588e5435448884871be51650c8dadb948202128beb0fbf45437fcabbd70c81d57787ff92:nonce_abcdef123456:1794315000:1794315060",
+      "compact_token": "eyJhbGciOiJFZDI1NTE5IiwidHlwIjoiSU5URU5UTE9DSy1BVVRIIn0.dG9rX3Rlc3RfMTIzNDU2Nzg6Q0FSVF9UWF8xMjM0NTpmZmNlNGI1Mzk2Mzk2NjAxYjZkNmIyZTg3YTAzZGE1N2I4Yzc5MTA1YjM0MDViMzg5NTQ1ZTQzNzU4OGU1NDM1NDQ4ODg0ODcxYmU1MTY1MGM4ZGFkYjk0ODIwMjEyOGJlYjBmYmY0NTQzN2ZjYWJiZDcwYzgxZDU3Nzg3ZmY5Mjpub25jZV9hYmNkZWYxMjM0NTY6MTc5NDMxNTAwMDoxNzk0MzE1MDYw.Ur-QdQGfgGaIt_JnUtQ963xTgHb8k8dBj9ATmUn8nG4HMckS4Y14rebHuRQ8Qs9zZTXgfRLGZjL17PRqDCxvBQ",
+      "signature_hex": "52bf9075019f806688b7f26752d43deb7c538076fc93c7418fd0139949fc9c6e0731c912e18d78ade6c7b9143c42cf736535e07d12c66632f5ecf46a0c2c6f05",
+      "expected_verification": true
+    }
+  ]
+}
+

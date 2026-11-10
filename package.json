@@ -1,22 +1,60 @@
 {
-  "name": "ai-commerce-agent",
+  "name": "intentlock-commerce",
   "version": "1.0.0",
-  "description": "Member 1 - AI Commerce Agent (PayPal Hackathon), Node/Express",
+  "description": "AI Personal Shopping Agent with an Intelligent Payment Security Firewall",
   "type": "module",
-  "main": "server.js",
+  "main": "src/server.js",
   "engines": {
-    "node": ">=18"
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
   },
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
-    "test": "node --test",
+    "start": "node src/server.js",
+    "start:agent": "node server.js",
+    "dev": "nodemon src/server.js",
+    "dev:agent": "node --watch server.js",
+    "test": "vitest run",
+    "test:agent": "node --test",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
     "demo": "node demo.js",
     "verify": "node verify.js",
     "check": "node --test && node verify.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adityasing9/PayPal.git"
+  },
+  "keywords": [
+    "fintech",
+    "ai",
+    "paypal",
+    "agentic-commerce",
+    "ed25519",
+    "security-firewall"
+  ],
+  "author": "IntentLock Commerce Engineering Team",
+  "license": "UNLICENSED",
+  "private": true,
   "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^4.19.2"
+    "argon2": "0.41.1",
+    "canonicalize": "2.0.0",
+    "cookie-parser": "1.4.7",
+    "cors": "2.8.5",
+    "dotenv": "16.4.5",
+    "express": "4.21.1",
+    "express-rate-limit": "7.4.1",
+    "helmet": "8.0.0",
+    "jsonwebtoken": "9.0.2",
+    "mongoose": "8.8.1",
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.14.0",
+    "eslint": "9.14.0",
+    "nodemon": "3.1.7",
+    "supertest": "7.0.0",
+    "vitest": "2.1.4"
   }
 }
