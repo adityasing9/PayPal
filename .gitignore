@@ -6,10 +6,20 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# Environment and Secret Files
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
 .env
 .env.*
 !.env.example
+.venv/
+env/
+venv/
+ENV/
 
 # Cryptographic Keys and Certificates
 *.pem
@@ -21,15 +31,30 @@ lerna-debug.log*
 *.id_rsa
 *.id_ed25519
 id_ed25519*
-keys/
+keys/*private*
+!keys/intentlock_public_key.hex
 private/
 secrets/
+
+# Databases
+*.db
+*.sqlite3
+dump/
+*.dump
+*.sql
+*.tar.gz
+*.bak
+*.backup
+data/local/
 
 # Test Coverage and Cache
 coverage/
 *.lcov
 .nyc_output/
 .vitest/
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Build and Transpilation Artifacts
 dist/
@@ -63,12 +88,3 @@ logs/
 *.pid
 *.seed
 *.pid.lock
-
-# Database Dumps and Local Backups
-dump/
-*.dump
-*.sql
-*.tar.gz
-*.bak
-*.backup
-data/local/

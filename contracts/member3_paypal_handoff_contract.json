@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Member 3 Payment Orchestration & PayPal Handoff Contract",
+  "description": "Cryptographic authorization package issued by Member 2 to Member 3 for verification before invoking PayPal capture.",
+  "type": "object",
+  "required": [
+    "protocol",
+    "authorization_token",
+    "public_key",
+    "intent_id",
+    "intent_hash",
+    "nonce",
+    "expires_at"
+  ],
+  "properties": {
+    "protocol": {
+      "type": "string",
+      "const": "INTENTLOCK_V1_ED25519"
+    },
+    "authorization_token": {
+      "type": "string",
+      "description": "Compact 3-segment token: base64url(header).base64url(claims).base64url(ed25519_signature)"
+    },
+    "public_key": {
+      "type": "string",
+      "description": "32-byte Ed25519 public key in hexadecimal format."
+    },
+    "intent_id": {
+      "type": "string"
+    },
+    "intent_hash": {
+      "type": "string",
+      "description": "SHA-512 cryptographic commitment of the RFC 8785 canonical intent payload."
+    },
+    "nonce": {
+      "type": "string",
+      "description": "128-bit single-use monotonic nonce."
+    },
+    "expires_at": {
+      "type": "number",
+      "description": "Unix timestamp after which the token is invalid (60-second window)."
+    },
+    "verification_instruction": {
+      "type": "string"
+    }
+  }
+}
