@@ -65,7 +65,164 @@ button:disabled {
 }
 
 /* =========================================
-   3. CARD HOVER EFFECT
+   3. LIGHT THEME BACKGROUNDS
+========================================= */
+
+.bg-white {
+  background-color: var(--card-background) !important;
+}
+
+.bg-slate-50 {
+  background-color: var(--page-background) !important;
+}
+
+.bg-slate-100 {
+  background-color: #EEECE6 !important;
+}
+
+/* =========================================
+   4. LIGHT THEME TEXT / BORDERS
+========================================= */
+
+.text-slate-900,
+.text-slate-800 {
+  color: var(--text-primary) !important;
+}
+
+.text-slate-700,
+.text-slate-600,
+.text-slate-500 {
+  color: var(--text-secondary) !important;
+}
+
+.border-slate-100,
+.border-slate-200,
+.border-slate-300 {
+  border-color: var(--border-color) !important;
+}
+
+/* =========================================
+   5. BRAND COLOR REPLACEMENTS
+========================================= */
+
+.bg-blue-50,
+.bg-blue-100,
+.bg-indigo-50,
+.bg-indigo-100,
+.bg-purple-50,
+.bg-purple-100,
+.bg-violet-50,
+.bg-violet-100,
+.bg-cyan-50,
+.bg-cyan-100,
+.bg-sky-50,
+.bg-sky-100,
+.bg-teal-50,
+.bg-teal-100 {
+  background-color: var(--teal-light) !important;
+  color: var(--brand-hover) !important;
+}
+
+.bg-blue-500,
+.bg-blue-600,
+.bg-blue-700,
+.bg-indigo-500,
+.bg-indigo-600,
+.bg-indigo-700,
+.bg-purple-500,
+.bg-purple-600,
+.bg-purple-700,
+.bg-violet-500,
+.bg-violet-600,
+.bg-violet-700,
+.bg-cyan-500,
+.bg-cyan-600,
+.bg-sky-500,
+.bg-sky-600,
+.bg-teal-500,
+.bg-teal-600,
+.bg-teal-700 {
+  background-color: var(--brand-primary) !important;
+  color: #FFFFFF !important;
+}
+
+.text-blue-400,
+.text-blue-500,
+.text-blue-600,
+.text-blue-700,
+.text-blue-800,
+.text-indigo-400,
+.text-indigo-500,
+.text-indigo-600,
+.text-indigo-700,
+.text-purple-400,
+.text-purple-500,
+.text-purple-600,
+.text-purple-700,
+.text-violet-400,
+.text-violet-500,
+.text-violet-600,
+.text-violet-700,
+.text-cyan-500,
+.text-cyan-600,
+.text-sky-500,
+.text-sky-600,
+.text-teal-400,
+.text-teal-500,
+.text-teal-600,
+.text-teal-700,
+.text-teal-800 {
+  color: var(--brand-primary) !important;
+}
+
+.border-blue-100,
+.border-blue-200,
+.border-indigo-100,
+.border-indigo-200,
+.border-purple-100,
+.border-purple-200,
+.border-violet-100,
+.border-violet-200,
+.border-cyan-100,
+.border-cyan-200,
+.border-sky-100,
+.border-sky-200,
+.border-teal-100,
+.border-teal-200 {
+  border-color: var(--teal-border) !important;
+}
+
+.hover\:bg-blue-50:hover,
+.hover\:bg-blue-100:hover,
+.hover\:bg-indigo-50:hover,
+.hover\:bg-indigo-100:hover,
+.hover\:bg-purple-50:hover,
+.hover\:bg-purple-100:hover,
+.hover\:bg-violet-50:hover,
+.hover\:bg-violet-100:hover,
+.hover\:bg-teal-50:hover,
+.hover\:bg-teal-100:hover {
+  background-color: #D1EEE8 !important;
+}
+
+.hover\:text-blue-700:hover,
+.hover\:text-indigo-700:hover,
+.hover\:text-purple-700:hover,
+.hover\:text-violet-700:hover,
+.hover\:text-teal-700:hover {
+  color: var(--brand-hover) !important;
+}
+
+.focus\:ring-blue-500:focus,
+.focus\:ring-indigo-500:focus,
+.focus\:ring-purple-500:focus,
+.focus\:ring-violet-500:focus,
+.focus\:ring-teal-500:focus {
+  --tw-ring-color: var(--brand-primary) !important;
+}
+
+/* =========================================
+   6. CARD HOVER EFFECT
 ========================================= */
 
 .card {
@@ -342,7 +499,31 @@ button:active:not(:disabled) {
 }
 
 /* =========================================
-   11. NAVBAR
+   11. NAVBAR / HEADER STATES
+========================================= */
+
+header {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-color: var(--border-color) !important;
+}
+
+header a[aria-current="page"] {
+  background-color: var(--teal-light) !important;
+  color: var(--brand-hover) !important;
+}
+
+header button[aria-label="Notifications"] {
+  background-color: var(--teal-light) !important;
+  color: var(--brand-hover) !important;
+  border: 1px solid var(--teal-border) !important;
+}
+
+header button[aria-label="Notifications"]:hover {
+  background-color: #D1EEE8 !important;
+}
+
+/* =========================================
+   12. NAVBAR
 ========================================= */
 
 header {
@@ -560,13 +741,72 @@ html:not(.dark) .hover\:bg-slate-100:hover {
   background-color: var(--teal-light);
 }
 
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--brand-primary) !important;
+  --tw-ring-color: var(--brand-primary) !important;
+  outline-color: var(--brand-primary);
+}
+
+input,
+textarea,
+select {
+  color: var(--text-primary);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #A8A29E;
+}
+
 /* =========================================
    18. AMBER ACCENT
 ========================================= */
 
+.brand-accent,
+.text-amber-500,
+.text-amber-600,
+.text-amber-700 {
+  color: #D97706 !important;
+}
+
 html:not(.dark) .text-amber-500,
 html:not(.dark) .text-amber-600 {
   color: var(--brand-accent);
+}
+
+/* Successful transactions */
+
+.bg-green-50 {
+  background-color: #F0FDF4 !important;
+}
+
+.text-green-600,
+.text-green-700 {
+  color: #15803D !important;
+}
+
+/* Blocked transactions */
+
+.bg-red-50 {
+  background-color: #FEF2F2 !important;
+}
+
+.text-red-600,
+.text-red-700 {
+  color: #DC2626 !important;
+}
+
+/* Pending and warning transactions */
+
+.bg-amber-50 {
+  background-color: #FFFBEB !important;
+}
+
+.text-amber-600,
+.text-amber-700 {
+  color: #B45309 !important;
 }
 
 /* =========================================
@@ -797,6 +1037,10 @@ html.dark .skeleton-shimmer::after {
     rgba(255, 255, 255, 0.08),
     transparent
   );
+}
+
+a {
+  transition: color 200ms ease;
 }
 
 /* =========================================
