@@ -79,8 +79,11 @@ class TestAdversarialSecurityAudit(unittest.TestCase):
         parts = token.compact_token.split('.')
         self.assertEqual(len(parts), 3)
 
-        # Attacker modifies even 1 character in the claims segment
-        tampered_claims = parts[1][:-1] + ('A' if parts[1][-1] != 'A' else 'B')
+        # Attacker intercepts token and mutates the payload claims (e.g. changing price)
+        from intentlock.workstream4_crypto_auth.signer import _b64url_decode, _b64url_encode
+        claims_bytes = _b64url_decode(parts[1])
+        tampered_bytes = (b'X' if claims_bytes[:1] != b'X' else b'Y') + claims_bytes[1:]
+        tampered_claims = _b64url_encode(tampered_bytes)
         tampered_token = f"{parts[0]}.{tampered_claims}.{parts[2]}"
 
         is_valid, claims = Ed25519Signer.verify_compact_token(tampered_token, self.engine.public_key_hex)
