@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # IntentLock Commerce
 
 **An AI Personal Shopping Agent with an Intelligent Payment Security Firewall**
@@ -32,18 +31,8 @@ This repository is maintained by a five-member development team using individual
 ## Project Status
 Under development — PayPal AI Hackathon 2026.
 
+---
 
-
-
-
-
-
-
-
-
-
-
-=======
 # AI Commerce Agent - Member 1 (PayPal Hackathon) | Node.js + Express
 
 The "brain" of the shopping experience. It understands what a user wants, finds and recommends
@@ -118,4 +107,3 @@ products, builds a cart, and hands a **purchase intent** to IntentLock (Member 2
 - Language parsing is rule-based (works offline, repeatable). It covers common phrasings, not every sentence; `llm_tools.js` is the path for fully free-form chat.
 - Sessions are in memory and reset when the server restarts.
 - No `/docs` page; use curl or add `swagger-ui-express`.
->>>>>>> 75464dc (initial commit)
