@@ -3,7 +3,7 @@ import { apiRequest, initializeCsrfToken } from "./client";
 
 // Generate a unique idempotency key
 export function createIdempotencyKey() {
-  return crypto.randomUUID();
+  return globalThis.crypto.randomUUID();
 }
 
 // Create a PayPal order
