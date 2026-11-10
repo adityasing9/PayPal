@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IntentLock Submission Contract (Member 1 -> Member 2)",
+  "description": "JSON schema for buyer commerce intent payloads submitted by Member 1 (Cart / UI Agent) to Member 2 for security verification and authorization.",
+  "type": "object",
+  "required": [
+    "intent_id",
+    "buyer_id",
+    "session_id",
+    "merchant",
+    "items",
+    "costs"
+  ],
+  "properties": {
+    "intent_id": {
+      "type": "string",
+      "description": "Unique identifier for the transactional intent."
+    },
+    "buyer_id": {
+      "type": "string",
+      "description": "Identifier of the purchasing user or customer."
+    },
+    "session_id": {
+      "type": "string",
+      "description": "Session tracking token."
+    },
+    "timestamp": {
+      "type": "number",
+      "description": "Unix epoch float timestamp of intent creation."
+    },
+    "merchant": {
+      "type": "object",
+      "required": ["merchant_id", "name", "domain"],
+      "properties": {
+        "merchant_id": { "type": "string" },
+        "name": { "type": "string" },
+        "domain": { "type": "string" },
+        "is_verified": { "type": "boolean", "default": true },
+        "reputation_score": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.95 }
+      }
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["item_id", "name", "sku", "unit_price"],
+        "properties": {
+          "item_id": { "type": "string" },
+          "name": { "type": "string" },
+          "sku": { "type": "string" },
+          "unit_price": { "type": "number", "minimum": 0.01 },
+          "quantity": { "type": "integer", "minimum": 1, "default": 1 },
+          "catalog_baseline_price": { "type": ["number", "null"] },
+          "category": { "type": "string", "default": "general" },
+          "metadata": { "type": "object" }
+        }
+      }
+    },
+    "costs": {
+      "type": "object",
+      "required": ["subtotal", "total_charged"],
+      "properties": {
+        "subtotal": { "type": "number" },
+        "tax": { "type": "number", "default": 0.0 },
+        "shipping": { "type": "number", "default": 0.0 },
+        "service_fee": { "type": "number", "default": 0.0 },
+        "regulatory_fee": { "type": "number", "default": 0.0 },
+        "tip": { "type": "number", "default": 0.0 },
+        "total_charged": { "type": "number" },
+        "currency": { "type": "string", "default": "USD" },
+        "itemized_fees": { "type": "object" }
+      }
+    },
+    "subscription": {
+      "type": "object",
+      "properties": {
+        "is_subscription": { "type": "boolean", "default": false },
+        "billing_interval": { "type": "string", "enum": ["none", "weekly", "monthly", "quarterly", "yearly"], "default": "none" },
+        "trial_period_days": { "type": "integer", "default": 0 },
+        "auto_renews": { "type": "boolean", "default": false },
+        "explicit_opt_in": { "type": "boolean", "default": false },
+        "renewal_price": { "type": "number", "default": 0.0 }
+      }
+    },
+    "raw_prompt_context": {
+      "type": ["string", "null"],
+      "description": "Natural language prompt context from conversational buyer interaction."
+    },
+    "promo_codes": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "canary_token": {
+      "type": ["string", "null"]
+    },
+    "user_notes": {
+      "type": ["string", "null"]
+    }
+  }
+}

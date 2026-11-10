@@ -11,6 +11,11 @@ env/
 venv/
 ENV/
 
+# Secrets & Private Keys
+keys/*private*
+*.pem
+*.key
+
 # Databases
 *.db
 *.sqlite3

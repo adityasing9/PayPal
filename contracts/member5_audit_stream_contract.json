@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Member 5 Compliance & Audit Stream Contract",
+  "description": "Cryptographic audit trail schema served by Member 2 via GET /api/v1/intent/audit/{intent_id} for Member 5's compliance dashboard.",
+  "type": "object",
+  "required": [
+    "intent_id",
+    "buyer_id",
+    "merchant_id",
+    "intent_hash",
+    "risk_score",
+    "is_authorized",
+    "created_at",
+    "verdict"
+  ],
+  "properties": {
+    "intent_id": { "type": "string" },
+    "buyer_id": { "type": "string" },
+    "merchant_id": { "type": "string" },
+    "intent_hash": { "type": "string" },
+    "risk_score": { "type": "number" },
+    "is_authorized": { "type": "integer", "enum": [0, 1] },
+    "created_at": { "type": "number" },
+    "verdict": {
+      "type": "object",
+      "required": ["is_authorized", "overall_risk_score", "verdicts", "reasons"],
+      "properties": {
+        "is_authorized": { "type": "boolean" },
+        "requires_challenge": { "type": "boolean" },
+        "overall_risk_score": { "type": "number" },
+        "verdicts": { "type": "object" },
+        "reasons": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "token": {
+      "type": ["object", "null"],
+      "properties": {
+        "token_id": { "type": "string" },
+        "intent_id": { "type": "string" },
+        "intent_hash": { "type": "string" },
+        "nonce": { "type": "string" },
+        "compact_token": { "type": "string" },
+        "public_key": { "type": "string" },
+        "issued_at": { "type": "number" },
+        "expires_at": { "type": "number" }
+      }
+    }
+  }
+}

@@ -23,6 +23,16 @@ class IntentLockEngine:
     def __init__(self,
                  db_path: Optional[str] = None,
                  private_key_bytes: Optional[bytes] = None):
+        import os
+        if private_key_bytes is None and os.path.exists("keys/intentlock_private_key.hex"):
+            try:
+                with open("keys/intentlock_private_key.hex", "r") as f:
+                    hex_key = f.read().strip()
+                    if len(hex_key) == 64:
+                        private_key_bytes = bytes.fromhex(hex_key)
+            except Exception:
+                pass
+
         self.merchant_verifier = MerchantVerifier()
         self.price_verifier = PriceVerifier()
         self.fee_detector = FeeDetector()
