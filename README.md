@@ -87,4 +87,4 @@ The service validates on startup that the configured private key derives the tru
 python -m unittest discover -v tests
 ```
 
-All 36 unit, integration, and red-team adversarial tests run in ~2.2 seconds with zero external network or C-library dependencies.
+All 37 unit, integration, red-team adversarial, and RFC cross-language interop tests run in ~2.5 seconds with zero external network or C-library dependencies.

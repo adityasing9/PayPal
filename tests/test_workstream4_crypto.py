@@ -119,5 +119,44 @@ class TestWorkstream4(unittest.TestCase):
             else:
                 os.environ.pop("INTENTLOCK_PRIVATE_KEY_HEX", None)
 
+    def test_interop_fixture_vectors_v1(self):
+        import json
+        from intentlock.core.config import find_project_path
+
+        fixture_path = find_project_path("contracts/test_vectors_interop_v1.json")
+        self.assertIsNotNone(fixture_path, "test_vectors_interop_v1.json must exist")
+
+        with open(fixture_path, "r", encoding="utf-8") as f:
+            fixture = json.load(f)
+
+        trusted_pk = fixture["trusted_public_key_hex"]
+        vectors = {v["id"]: v for v in fixture["test_vectors"]}
+
+        # Vector 1: Simple message verification
+        v1 = vectors["vector_1_simple_message"]
+        v1_valid = Ed25519Signer.verify_signature(
+            bytes.fromhex(trusted_pk),
+            v1["message_utf8"].encode("utf-8"),
+            bytes.fromhex(v1["signature_hex"])
+        )
+        self.assertTrue(v1_valid)
+
+        # Vector 2: RFC 8785 Canonicalization & SHA-512
+        v2 = vectors["vector_2_rfc8785_canonicalization"]
+        canonical_bytes = Canonicalizer.canonicalize(v2["raw_object"])
+        self.assertEqual(canonical_bytes.decode("utf-8"), v2["canonical_json"])
+        self.assertEqual(Canonicalizer.hash_intent_sha512(canonical_bytes), v2["sha512_digest"])
+
+        # Vector 3: Compact token verification
+        v3 = vectors["vector_3_compact_authorization_token"]
+        is_valid, claims = Ed25519Signer.verify_compact_token(v3["compact_token"], trusted_pk)
+        self.assertTrue(is_valid)
+        self.assertEqual(claims["token_id"], v3["claims"]["token_id"])
+        self.assertEqual(claims["intent_id"], v3["claims"]["intent_id"])
+        self.assertEqual(claims["intent_hash"], v3["claims"]["intent_hash"])
+        self.assertEqual(claims["nonce"], v3["claims"]["nonce"])
+        self.assertEqual(claims["issued_at"], v3["claims"]["issued_at"])
+        self.assertEqual(claims["expires_at"], v3["claims"]["expires_at"])
+
 if __name__ == "__main__":
     unittest.main()

@@ -76,29 +76,59 @@ def _decodepoint(s: bytes) -> Tuple[int, int]:
 def _H(m: bytes) -> bytes:
     return hashlib.sha512(m).digest()
 
+def _clamp_scalar(h_bytes: bytes) -> int:
+    """
+    RFC 8032 Section 5.1.5: Clamp the first 32 bytes of SHA-512(sk).
+    Clear bits 0,1,2 of the first byte, clear bit 7 of the last byte, set bit 6 of the last byte.
+    """
+    a_bytes = bytearray(h_bytes[:32])
+    a_bytes[0] &= 248
+    a_bytes[31] &= 127
+    a_bytes[31] |= 64
+    return int.from_bytes(a_bytes, 'little')
+
+
 def _publickey(sk: bytes) -> bytes:
+    """RFC 8032 Section 5.1.5: Derive Ed25519 public key from 32-byte private seed."""
     h = _H(sk)
-    a = 2**254 + sum(2**i * _bit(h, i) for i in range(3, 254))
+    a = _clamp_scalar(h)
     A = _scalarmult(_B, a)
     return _encodepoint(A)
 
+
 def _sign_raw(m: bytes, sk: bytes, pk: bytes) -> bytes:
+    """
+    RFC 8032 Section 5.1.6: Ed25519 signing.
+    All SHA-512 digests are interpreted as 512-bit little-endian integers
+    before reduction mod l, ensuring cross-platform deterministic signatures.
+    """
     h = _H(sk)
-    a = 2**254 + sum(2**i * _bit(h, i) for i in range(3, 254))
-    r = _decodeint(_H(h[32:] + m))
+    a = _clamp_scalar(h)
+
+    # r = SHA-512(h[32:] + m) interpreted as 512-bit LE integer, reduced mod l
+    r = int.from_bytes(_H(h[32:] + m), 'little')
     R = _scalarmult(_B, r)
-    k = _decodeint(_H(_encodepoint(R) + pk + m))
+    R_bytes = _encodepoint(R)
+
+    # k = SHA-512(R + pk + m) interpreted as 512-bit LE integer, reduced mod l
+    k = int.from_bytes(_H(R_bytes + pk + m), 'little')
     S = (r + k * a) % _l
-    return _encodepoint(R) + _encodeint(S)
+    return R_bytes + S.to_bytes(32, 'little')
+
 
 def _verify_raw(s: bytes, m: bytes, pk: bytes) -> bool:
+    """
+    RFC 8032 Section 5.1.7: Ed25519 verification.
+    Compatible with Node.js crypto.verify(), OpenSSL, libsodium, and all
+    standard Ed25519 implementations.
+    """
     if len(s) != 64 or len(pk) != 32:
         return False
     try:
         R = _decodepoint(s[:32])
         A = _decodepoint(pk)
-        S = _decodeint(s[32:])
-        k = _decodeint(_H(s[:32] + pk + m))
+        S = int.from_bytes(s[32:], 'little')
+        k = int.from_bytes(_H(s[:32] + pk + m), 'little')
         return _scalarmult(_B, S) == _edwards_add(R, _scalarmult(A, k))
     except Exception:
         return False
@@ -152,12 +182,13 @@ class Ed25519Signer:
                                   validity_seconds: int = 60) -> SignedAuthorizationToken:
         """
         Creates a signed IntentLock authorization token for a verified commerce intent.
+        Timestamps are integer Unix epoch seconds for cross-language determinism.
         """
-        issued_at = time.time()
+        issued_at = int(time.time())
         expires_at = issued_at + validity_seconds
         token_id = secrets.token_hex(16)
 
-        # Structure payload to be signed
+        # Structure payload to be signed (colon-separated, integer timestamps)
         claims = f"{token_id}:{intent_id}:{intent_hash}:{nonce}:{issued_at}:{expires_at}"
         claims_bytes = claims.encode('utf-8')
 
@@ -165,7 +196,7 @@ class Ed25519Signer:
         sig_hex = sig_bytes.hex()
 
         # Build compact URL-safe token format: header.payload.signature
-        header = f'{{"alg":"Ed25519","typ":"INTENTLOCK-AUTH"}}'.encode('utf-8')
+        header = b'{"alg":"Ed25519","typ":"INTENTLOCK-AUTH"}'
         compact_token = (
             f"{_b64url_encode(header)}."
             f"{_b64url_encode(claims_bytes)}."
@@ -206,13 +237,17 @@ class Ed25519Signer:
             claims_str = claims_bytes.decode('utf-8')
             token_id, intent_id, intent_hash, nonce, issued_at, expires_at = claims_str.split(':')
 
+            # Parse timestamps (supports both integer and float for backward compatibility)
+            def _parse_ts(s):
+                return int(s) if '.' not in s else float(s)
+
             return True, {
                 "token_id": token_id,
                 "intent_id": intent_id,
                 "intent_hash": intent_hash,
                 "nonce": nonce,
-                "issued_at": float(issued_at),
-                "expires_at": float(expires_at)
+                "issued_at": _parse_ts(issued_at),
+                "expires_at": _parse_ts(expires_at)
             }
         except Exception:
             return False, None
