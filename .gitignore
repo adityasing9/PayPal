@@ -1,0 +1,32 @@
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Secrets & Private Keys
+keys/*private*
+*.pem
+*.key
+
+# Databases
+*.db
+*.sqlite3
+
+# Testing & Logs
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
