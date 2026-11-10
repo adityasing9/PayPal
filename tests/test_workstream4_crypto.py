@@ -90,5 +90,34 @@ class TestWorkstream4(unittest.TestCase):
         with self.assertRaises(ReplayAttackDetected):
             self.nonce_guard.validate_and_record_nonce(nonce, "INTENT_FUTURE", future_time)
 
+    def test_key_environment_resolution_and_health_integration(self):
+        import os
+        import tempfile
+        from intentlock.engine import IntentLockEngine
+        from intentlock.core.errors import CryptographicSignatureError
+
+        # Generate a test key
+        dummy_signer = Ed25519Signer.generate_keypair()
+        dummy_hex = dummy_signer.private_key_hex
+        dummy_pub = dummy_signer.public_key_hex
+
+        # Test resolution from explicit argument
+        engine_explicit = IntentLockEngine(private_key_bytes=bytes.fromhex(dummy_hex))
+        self.assertEqual(engine_explicit.public_key_hex, dummy_pub)
+        self.assertTrue(engine_explicit.is_persistent_key)
+
+        # Test resolution from environment variable
+        old_env = os.environ.get("INTENTLOCK_PRIVATE_KEY_HEX")
+        try:
+            os.environ["INTENTLOCK_PRIVATE_KEY_HEX"] = dummy_hex
+            # When trusted public key exists and doesn't match dummy_hex, IntentLockEngine catches mismatch
+            with self.assertRaises(CryptographicSignatureError):
+                IntentLockEngine()
+        finally:
+            if old_env is not None:
+                os.environ["INTENTLOCK_PRIVATE_KEY_HEX"] = old_env
+            else:
+                os.environ.pop("INTENTLOCK_PRIVATE_KEY_HEX", None)
+
 if __name__ == "__main__":
     unittest.main()

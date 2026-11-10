@@ -5,10 +5,12 @@ and executes cryptographic authorization handoffs.
 """
 
 from typing import Tuple, Optional, Dict
+import logging
 from intentlock.core.models import (
     IntentPayload, AggregatedSecurityVerdict, WorkstreamVerdict, SignedAuthorizationToken
 )
-from intentlock.core.config import config
+from intentlock.core.config import config, find_project_path, get_trusted_public_key
+from intentlock.core.errors import CryptographicSignatureError
 from intentlock.workstream1_verification.merchant_verifier import MerchantVerifier
 from intentlock.workstream1_verification.price_verifier import PriceVerifier
 from intentlock.workstream2_hidden_costs.fee_detector import FeeDetector
@@ -19,28 +21,101 @@ from intentlock.workstream4_crypto_auth.signer import Ed25519Signer
 from intentlock.workstream4_crypto_auth.nonce_guard import NonceReplayGuard
 from intentlock.workstream5_api_db.database import AuditDatabase
 
+logger = logging.getLogger("intentlock.engine")
+
 class IntentLockEngine:
     def __init__(self,
                  db_path: Optional[str] = None,
                  private_key_bytes: Optional[bytes] = None):
-        import os
-        if private_key_bytes is None and os.path.exists("keys/intentlock_private_key.hex"):
-            try:
-                with open("keys/intentlock_private_key.hex", "r") as f:
-                    hex_key = f.read().strip()
-                    if len(hex_key) == 64:
-                        private_key_bytes = bytes.fromhex(hex_key)
-            except Exception:
-                pass
+        resolved_bytes, is_persistent = self._resolve_private_key(private_key_bytes)
+        trusted_pubkey = get_trusted_public_key()
+
+        if resolved_bytes:
+            self.signer = Ed25519Signer(resolved_bytes)
+            self.is_persistent_key = is_persistent
+            if trusted_pubkey:
+                if self.signer.public_key_hex.lower() == trusted_pubkey.lower():
+                    self.trusted_key_matched = True
+                    logger.info(f"[IntentLock] Persistent Ed25519 private key verified against trusted public key ({trusted_pubkey[:16]}...).")
+                else:
+                    self.trusted_key_matched = False
+                    if private_key_bytes is None:
+                        raise CryptographicSignatureError(
+                            f"Persistent private key mismatch! Loaded key derives public key '{self.signer.public_key_hex}', "
+                            f"which does NOT match trusted public key '{trusted_pubkey}' in keys/intentlock_public_key.hex. "
+                            "Member 3 token verification will fail. Please configure the matching private key."
+                        )
+            else:
+                self.trusted_key_matched = False
+        else:
+            self.is_persistent_key = False
+            self.trusted_key_matched = False
+            if config.REQUIRE_PERSISTENT_KEY:
+                raise CryptographicSignatureError(
+                    "Persistent Ed25519 key is required (INTENTLOCK_REQUIRE_PERSISTENT_KEY=true), "
+                    "but neither INTENTLOCK_PRIVATE_KEY_HEX nor keys/intentlock_private_key.hex was found."
+                )
+            self.signer = Ed25519Signer()
+            logger.warning(
+                f"[IntentLock WARNING] No persistent private key found (checked INTENTLOCK_PRIVATE_KEY_HEX and {config.PRIVATE_KEY_PATH}). "
+                f"Generated ephemeral keypair (public: {self.signer.public_key_hex[:16]}...).\n"
+                f"WARNING: This does NOT match trusted public key ({trusted_pubkey or 'N/A'}). "
+                "Member 3 verification will fail. Provide the private key via INTENTLOCK_PRIVATE_KEY_HEX in .env or keys/intentlock_private_key.hex."
+            )
 
         self.merchant_verifier = MerchantVerifier()
         self.price_verifier = PriceVerifier()
         self.fee_detector = FeeDetector()
         self.subscription_guard = SubscriptionGuard()
         self.threat_scorer = ThreatScorer()
-        self.signer = Ed25519Signer(private_key_bytes)
         self.nonce_guard = NonceReplayGuard()
         self.db = AuditDatabase(db_path or config.DB_PATH)
+
+    def _resolve_private_key(self, explicit_bytes: Optional[bytes]) -> Tuple[Optional[bytes], bool]:
+        """
+        Resolves private key bytes from:
+        1. Explicit constructor argument
+        2. Environment variable INTENTLOCK_PRIVATE_KEY_HEX / INTENTLOCK_PRIVATE_KEY
+        3. Configured key file path (default keys/intentlock_private_key.hex)
+        Returns (key_bytes, is_persistent)
+        """
+        import os
+
+        if explicit_bytes is not None:
+            return explicit_bytes, True
+
+        # Check environment variables (supporting standard and common aliases)
+        hex_env = (
+            os.getenv("INTENTLOCK_PRIVATE_KEY_HEX")
+            or os.getenv("INTENTLOCK_PRIVATE_KEY")
+            or os.getenv("PRIVATE_KEY_HEX")
+            or os.getenv("PRIVATE_KEY")
+            or os.getenv("ED25519_PRIVATE_KEY")
+        )
+        if hex_env:
+            hex_clean = hex_env.strip()
+            if len(hex_clean) == 64:
+                try:
+                    return bytes.fromhex(hex_clean), True
+                except ValueError:
+                    logger.error("[IntentLock] Failed parsing private key from environment: Invalid hex string.")
+            else:
+                logger.error(f"[IntentLock] Private key in environment must be exactly 64 hex characters (got {len(hex_clean)}).")
+
+        # Check filesystem path
+        key_file_path = find_project_path(config.PRIVATE_KEY_PATH)
+        if key_file_path and os.path.isfile(key_file_path):
+            try:
+                with open(key_file_path, "r", encoding="utf-8") as f:
+                    hex_key = f.read().strip()
+                    if len(hex_key) == 64:
+                        return bytes.fromhex(hex_key), True
+                    else:
+                        logger.error(f"[IntentLock] Key file at {key_file_path} contains invalid length ({len(hex_key)} chars).")
+            except Exception as e:
+                logger.error(f"[IntentLock] Failed reading private key from {key_file_path}: {e}")
+
+        return None, False
 
     @property
     def public_key_hex(self) -> str:

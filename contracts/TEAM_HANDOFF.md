@@ -33,6 +33,20 @@
 - **Public Key File:** `keys/intentlock_public_key.hex`
 - **Healthcheck & Public Key Endpoint:** `GET /api/v1/health`
 
+### Loading Persistent Private Key for Member 2 Service:
+Private keys are never committed to version control. When running the Member 2 Flask service locally or in deployment:
+1. **Option 1 (Environment variable / .env):**
+   Copy `.env.example` to `.env` and configure:
+   ```bash
+   INTENTLOCK_PRIVATE_KEY_HEX=<64_character_hex_private_key>
+   ```
+2. **Option 2 (Local File):**
+   Place the 64-character hex key in `keys/intentlock_private_key.hex` (this path is protected by `.gitignore`).
+3. **Option 3 (Interactive Helper):**
+   Run `python scripts/setup_key.py` to securely input and validate the key without exposing it in terminal logs.
+
+When correctly configured, `GET /api/v1/health` reports `"is_persistent_key": true` and `"trusted_key_matched": true`. If the private key is absent, an ephemeral key is generated and a warning is logged.
+
 ---
 
 ## 3. Integration for Member 1 (Cart / Buyer Intent)

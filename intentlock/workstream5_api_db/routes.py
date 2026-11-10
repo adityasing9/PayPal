@@ -5,6 +5,7 @@ Endpoints for intent verification, cryptographic authorization, and audit inspec
 
 from flask import Blueprint, request, jsonify
 from intentlock.core.models import IntentPayload
+from intentlock.core.config import get_trusted_public_key
 from intentlock.workstream5_api_db.team_contracts import TeamMemberContracts
 
 def build_api_blueprint(engine) -> Blueprint:
@@ -12,11 +13,18 @@ def build_api_blueprint(engine) -> Blueprint:
 
     @api.route("/health", methods=["GET"])
     def health():
+        trusted_pub = get_trusted_public_key()
+        is_persistent = getattr(engine, "is_persistent_key", False)
+        trusted_matched = getattr(engine, "trusted_key_matched", False)
+
         return jsonify({
             "status": "HEALTHY",
             "service": "IntentLock Commerce Security Engine",
             "member_role": "Member 2 of 5",
             "public_key": engine.public_key_hex,
+            "trusted_public_key": trusted_pub or engine.public_key_hex,
+            "is_persistent_key": is_persistent,
+            "trusted_key_matched": trusted_matched,
             "crypto_algorithm": "Ed25519 (RFC 8032)",
             "canonicalization": "RFC 8785 (JCS)"
         }), 200

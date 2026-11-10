@@ -1,4 +1,3 @@
-# IntentLock Commerce Security Engine (Member 2)
 
 An intelligent, cryptographic security microservice designed to intercept AI-assisted commerce manipulation, drip pricing, deceptive recurring subscriptions, and prompt injections before issuing verifiable **Ed25519 authorization tokens** for PayPal transaction capture.
 
@@ -65,10 +64,27 @@ intentlock/
 
 ---
 
+## Cryptographic Key Management (Ed25519)
+
+- **Trusted Public Key (RFC 8032):**
+  ```
+  4df93f582d2b31f519c1982bb55c1aa46b4d64498fa04164eeb36c44c0f1cca9
+  ```
+- **Public Key File:** `keys/intentlock_public_key.hex`
+- **Private Key Configuration (Zero Git Exposure):**
+  The private key is confidential and ignored by Git. Teammates running the service can supply the persistent private key through either:
+  1. **`.env` file (Recommended):** Copy `.env.example` to `.env` and set `INTENTLOCK_PRIVATE_KEY_HEX=<64_hex_chars>`.
+  2. **Local Key File:** Place the hex key in `keys/intentlock_private_key.hex`.
+  3. **Interactive Setup Script:** Run `python scripts/setup_key.py` to securely enter and validate the key without leaving terminal history.
+
+The service validates on startup that the configured private key derives the trusted public key.
+
+---
+
 ## Running the Automated Test Suite
 
 ```bash
 python -m unittest discover -v tests
 ```
 
-All 35 unit, integration, and red-team adversarial tests run in ~2.2 seconds with zero external network or C-library dependencies.
+All 36 unit, integration, and red-team adversarial tests run in ~2.2 seconds with zero external network or C-library dependencies.
