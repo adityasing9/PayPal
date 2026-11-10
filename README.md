@@ -148,3 +148,59 @@ intentlock/
 - **Public Key File:** `keys/intentlock_public_key.hex`
 - **Private Key Configuration (Zero Git Exposure):**
   The private key is confidential and ignored by Git. Supply via `.env` with `INTENTLOCK_PRIVATE_KEY_HEX=<64_hex_chars>`.
+
+---
+
+# Member 4: Frontend UI
+
+## Technology Stack
+
+- React 19
+- Vite
+- Tailwind CSS 4
+- React Router
+- Axios
+- Lucide React
+- Recharts
+
+## Frontend Features
+
+- User authentication interface
+- Login and registration pages
+- IntentLock dashboard
+- Product and shopping interfaces
+- API integration with the backend
+- Security and payment interface
+
+## Frontend Setup
+
+Install dependencies:
+
+```bash
+npm install
+npm run dev:frontend
+npm run build
+npm run preview
+
+## Frontend Structure
+
+src/
++-- api/
++-- assets/
++-- components/
++-- context/
++-- pages/
++-- App.jsx
++-- index.css 
+
+## API Integration
+
+The frontend uses Axios-based API modules for:
+
+- Authentication
+- Products
+- Intents
+- Payments
+- Proposals
+- Security
+
