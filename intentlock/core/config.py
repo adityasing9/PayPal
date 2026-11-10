@@ -131,8 +131,8 @@ class SecurityConfig:
     CANARY_TOKEN_HEADER: str = "X-IntentLock-Canary"
 
     # Cryptographic Authorization constraints
-    TOKEN_VALIDITY_WINDOW_SECONDS: int = 60      # Tokens expire 60s after generation
-    MAX_CLOCK_SKEW_SECONDS: int = 15             # 15s leeway for network clock sync
+    TOKEN_VALIDITY_WINDOW_SECONDS: int = int(os.getenv("INTENTLOCK_TOKEN_VALIDITY_SECONDS", "300"))      # 300s (5-min) window per Phase 2.6 spec
+    MAX_CLOCK_SKEW_SECONDS: int = int(os.getenv("INTENTLOCK_MAX_CLOCK_SKEW_SECONDS", "15"))             # 15s leeway for network clock sync
     NONCE_BYTE_LENGTH: int = 16                  # 128-bit cryptographic nonces
 
     # Key Management Configuration

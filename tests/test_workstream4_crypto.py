@@ -90,6 +90,80 @@ class TestWorkstream4(unittest.TestCase):
         with self.assertRaises(ReplayAttackDetected):
             self.nonce_guard.validate_and_record_nonce(nonce, "INTENT_FUTURE", future_time)
 
+    def test_verify_compact_token_rejects_expired(self):
+        """Ed25519Signer.verify_compact_token strictly rejects expired tokens."""
+        token = self.signer.create_authorization_token(
+            intent_id="INTENT_EXP",
+            intent_hash="HASH_SAMPLE",
+            nonce="nonce_exp_123",
+            validity_seconds=60
+        )
+        # Evaluate after expiration (now > expires_at + 15s leeway)
+        is_valid, claims = Ed25519Signer.verify_compact_token(
+            token.compact_token,
+            self.signer.public_key_hex,
+            current_time=token.expires_at + 20
+        )
+        self.assertFalse(is_valid, "verify_compact_token must reject expired token")
+        self.assertIsNone(claims)
+
+    def test_verify_compact_token_rejects_future_timestamp(self):
+        """Ed25519Signer.verify_compact_token strictly rejects future issued_at timestamps."""
+        token = self.signer.create_authorization_token(
+            intent_id="INTENT_FUT",
+            intent_hash="HASH_SAMPLE",
+            nonce="nonce_fut_123",
+            validity_seconds=60
+        )
+        # Evaluate before token was issued (issued_at > now + leeway)
+        is_valid, claims = Ed25519Signer.verify_compact_token(
+            token.compact_token,
+            self.signer.public_key_hex,
+            current_time=token.issued_at - 100
+        )
+        self.assertFalse(is_valid, "verify_compact_token must reject future-timestamped token")
+        self.assertIsNone(claims)
+
+    def test_verify_compact_token_rejects_tampered_header(self):
+        """Tokens with forged alg (e.g. 'none') or wrong typ must be rejected."""
+        from intentlock.workstream4_crypto_auth.signer import _b64url_encode, _b64url_decode
+        token = self.signer.create_authorization_token("INTENT_HDR", "HASH", "nonce_hdr")
+        parts = token.compact_token.split('.')
+
+        # Tamper header to alg: none
+        fake_header = b'{"alg":"none","typ":"INTENTLOCK-AUTH"}'
+        tampered_token = f"{_b64url_encode(fake_header)}.{parts[1]}.{parts[2]}"
+
+        is_valid, claims = Ed25519Signer.verify_compact_token(tampered_token, self.signer.public_key_hex)
+        self.assertFalse(is_valid, "Token with tampered alg='none' must be rejected")
+        self.assertIsNone(claims)
+
+    def test_verify_compact_token_rejects_invalid_public_key_format(self):
+        """Tokens verified against malformed or non-64-character public keys must be rejected."""
+        token = self.signer.create_authorization_token("INTENT_KEY", "HASH", "nonce_key")
+        # 32 characters (16 bytes) instead of 64 characters (32 bytes)
+        is_valid, _ = Ed25519Signer.verify_compact_token(token.compact_token, "0123456789abcdef0123456789abcdef")
+        self.assertFalse(is_valid, "Short public key must be rejected")
+
+        # Non-hex public key
+        is_valid, _ = Ed25519Signer.verify_compact_token(token.compact_token, "z" * 64)
+        self.assertFalse(is_valid, "Non-hex public key must be rejected")
+
+    def test_verify_compact_token_rejects_far_future_lifetime(self):
+        """Tokens with excessive lifetime window (> 1 hour) are rejected as lifetime injection attacks."""
+        issued = int(time.time())
+        far_future_expiry = issued + 86400 * 365  # 1 year validity exploit
+        claims = f"tok_hack:INTENT_HACK:HASH:nonce_hack:{issued}:{far_future_expiry}"
+        claims_bytes = claims.encode('utf-8')
+        sig_bytes = self.signer.sign_message(claims_bytes)
+
+        from intentlock.workstream4_crypto_auth.signer import _b64url_encode
+        header = b'{"alg":"Ed25519","typ":"INTENTLOCK-AUTH"}'
+        hack_token = f"{_b64url_encode(header)}.{_b64url_encode(claims_bytes)}.{_b64url_encode(sig_bytes)}"
+
+        is_valid, _ = Ed25519Signer.verify_compact_token(hack_token, self.signer.public_key_hex)
+        self.assertFalse(is_valid, "Far-future token lifetime must be rejected")
+
     def test_key_environment_resolution_and_health_integration(self):
         import os
         import tempfile
@@ -147,9 +221,13 @@ class TestWorkstream4(unittest.TestCase):
         self.assertEqual(canonical_bytes.decode("utf-8"), v2["canonical_json"])
         self.assertEqual(Canonicalizer.hash_intent_sha512(canonical_bytes), v2["sha512_digest"])
 
-        # Vector 3: Compact token verification
+        # Vector 3: Compact token verification (evaluated at issuance time)
         v3 = vectors["vector_3_compact_authorization_token"]
-        is_valid, claims = Ed25519Signer.verify_compact_token(v3["compact_token"], trusted_pk)
+        is_valid, claims = Ed25519Signer.verify_compact_token(
+            v3["compact_token"],
+            trusted_pk,
+            current_time=v3["claims"]["issued_at"] + 10
+        )
         self.assertTrue(is_valid)
         self.assertEqual(claims["token_id"], v3["claims"]["token_id"])
         self.assertEqual(claims["intent_id"], v3["claims"]["intent_id"])
@@ -157,6 +235,14 @@ class TestWorkstream4(unittest.TestCase):
         self.assertEqual(claims["nonce"], v3["claims"]["nonce"])
         self.assertEqual(claims["issued_at"], v3["claims"]["issued_at"])
         self.assertEqual(claims["expires_at"], v3["claims"]["expires_at"])
+
+        # Stale token must be rejected under current wall-clock time
+        stale_valid, _ = Ed25519Signer.verify_compact_token(
+            v3["compact_token"],
+            trusted_pk,
+            enforce_expiry=True
+        )
+        self.assertFalse(stale_valid, "Vector 3 token must be rejected as expired under current time")
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,7 @@ Endpoints for intent verification, cryptographic authorization, and audit inspec
 
 from flask import Blueprint, request, jsonify
 from intentlock.core.models import IntentPayload
+from intentlock.core.errors import SchemaValidationError
 from intentlock.core.config import get_trusted_public_key
 from intentlock.workstream5_api_db.team_contracts import TeamMemberContracts
 
@@ -39,6 +40,12 @@ def build_api_blueprint(engine) -> Blueprint:
             intent = IntentPayload.from_dict(data)
             verdict = engine.verify_intent(intent)
             return jsonify(verdict.to_dict()), 200
+        except SchemaValidationError as e:
+            return jsonify({
+                "error": f"Schema validation error: {str(e)}",
+                "code": e.code,
+                "details": e.details
+            }), 400
         except Exception as e:
             return jsonify({"error": f"Verification failed: {str(e)}"}), 500
 
@@ -61,6 +68,12 @@ def build_api_blueprint(engine) -> Blueprint:
 
             status_code = 200 if authorized else 403
             return jsonify(response), status_code
+        except SchemaValidationError as e:
+            return jsonify({
+                "error": f"Schema validation error: {str(e)}",
+                "code": e.code,
+                "details": e.details
+            }), 400
         except Exception as e:
             return jsonify({"error": f"Authorization pipeline error: {str(e)}"}), 500
 

@@ -11,6 +11,12 @@ class IntentLockSecurityError(Exception):
         self.details = details or {}
 
 
+class SchemaValidationError(IntentLockSecurityError):
+    """Raised when an incoming intent payload violates the formal schema specification."""
+    def __init__(self, message: str, details: dict = None):
+        super().__init__(message, code="SCHEMA_VALIDATION_ERROR", details=details)
+
+
 class MerchantVerificationFailed(IntentLockSecurityError):
     """Raised when merchant domain or reputation fails verification."""
     def __init__(self, message: str, details: dict = None):

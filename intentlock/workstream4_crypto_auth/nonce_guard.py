@@ -6,6 +6,7 @@ Guarantees single-use authorization tokens and thwarts replay attacks and clock 
 import time
 import secrets
 import threading
+import math
 from typing import Dict, Tuple, Optional
 from intentlock.core.config import config
 from intentlock.core.errors import ReplayAttackDetected
@@ -32,6 +33,12 @@ class NonceReplayGuard:
         Validates token freshness and records the nonce.
         Raises ReplayAttackDetected if nonce was previously used or timestamp is invalid.
         """
+        if not nonce or not isinstance(nonce, str) or not nonce.strip():
+            raise ReplayAttackDetected("Invalid empty or non-string nonce")
+
+        if not isinstance(token_timestamp, (int, float)) or math.isnan(token_timestamp) or math.isinf(token_timestamp) or token_timestamp <= 0:
+            raise ReplayAttackDetected(f"Invalid non-finite or non-positive token timestamp: {token_timestamp}")
+
         now = time.time()
 
         # 1. Clock skew / Future timestamp defense

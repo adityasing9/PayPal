@@ -6,6 +6,7 @@ import unittest
 import json
 import os
 import tempfile
+import time
 from intentlock.core.models import (
     IntentPayload, MerchantInfo, CartItem, CostBreakdown, SubscriptionTerms
 )
@@ -104,6 +105,75 @@ class TestWorkstream5(unittest.TestCase):
         self.assertIn("verdict", data)
         self.assertIn("token", data)
         self.assertIsNotNone(data["token"]["compact_token"])
+
+    def test_verify_endpoint_rejects_empty_items_schema_error(self):
+        """API returns 400 Bad Request when items array is empty."""
+        payload = self._sample_valid_intent_dict("INTENT_EMPTY_ITEMS")
+        payload["items"] = []
+
+        resp = self.client.post("/api/v1/intent/verify", json=payload)
+        self.assertEqual(resp.status_code, 400)
+        data = resp.get_json()
+        self.assertEqual(data.get("code"), "SCHEMA_VALIDATION_ERROR")
+        self.assertIn("items", data.get("error", "").lower())
+
+    def test_authorize_endpoint_rejects_missing_merchant_schema_error(self):
+        """API returns 400 Bad Request when merchant dictionary is omitted."""
+        payload = self._sample_valid_intent_dict("INTENT_NO_MERCHANT")
+        del payload["merchant"]
+
+        resp = self.client.post("/api/v1/intent/authorize", json=payload)
+        self.assertEqual(resp.status_code, 400)
+        data = resp.get_json()
+        self.assertEqual(data.get("code"), "SCHEMA_VALIDATION_ERROR")
+
+    def test_authorize_endpoint_rejects_negative_quantity_schema_error(self):
+        """API returns 400 Bad Request when item quantity is negative."""
+        payload = self._sample_valid_intent_dict("INTENT_NEG_QTY")
+        payload["items"][0]["quantity"] = -3
+
+        resp = self.client.post("/api/v1/intent/authorize", json=payload)
+        self.assertEqual(resp.status_code, 400)
+        data = resp.get_json()
+        self.assertEqual(data.get("code"), "SCHEMA_VALIDATION_ERROR")
+
+    def test_authorize_endpoint_rejects_negative_subtotal_schema_error(self):
+        """API returns 400 Bad Request when subtotal is negative."""
+        payload = self._sample_valid_intent_dict("INTENT_NEG_SUBTOTAL")
+        payload["costs"]["subtotal"] = -50.0
+
+        resp = self.client.post("/api/v1/intent/authorize", json=payload)
+        self.assertEqual(resp.status_code, 400)
+        data = resp.get_json()
+        self.assertEqual(data.get("code"), "SCHEMA_VALIDATION_ERROR")
+
+    def test_authorize_endpoint_rejects_non_numeric_price_string(self):
+        """API returns 400 Bad Request when unit_price is a non-numeric string."""
+        payload = self._sample_valid_intent_dict("INTENT_NAN_PRICE")
+        payload["items"][0]["unit_price"] = "not_a_number"
+
+        resp = self.client.post("/api/v1/intent/authorize", json=payload)
+        self.assertEqual(resp.status_code, 400)
+        data = resp.get_json()
+        self.assertEqual(data.get("code"), "SCHEMA_VALIDATION_ERROR")
+
+    def test_mock_member3_rejects_expired_handoff_token(self):
+        """MockMember3PaymentOrchestrator rejects expired authorization tokens."""
+        # Create an expired token by setting validity_seconds negative or expired
+        from intentlock.workstream4_crypto_auth.signer import _b64url_encode
+        now = int(time.time())
+        issued = now - 600
+        expires = now - 100
+        claims = f"tok_old:INTENT_OLD:HASH_OLD:nonce_old:{issued}:{expires}"
+        claims_bytes = claims.encode("utf-8")
+        sig_bytes = self.engine.signer.sign_message(claims_bytes)
+        header = b'{"alg":"Ed25519","typ":"INTENTLOCK-AUTH"}'
+        expired_token = f"{_b64url_encode(header)}.{_b64url_encode(claims_bytes)}.{_b64url_encode(sig_bytes)}"
+
+        orchestrator = MockMember3PaymentOrchestrator(self.engine.public_key_hex)
+        res = orchestrator.process_payment({"authorization_token": expired_token})
+        self.assertEqual(res["status"], "REJECTED_BY_PAYMENT_ORCHESTRATOR")
+        self.assertIsNone(res["paypal_transaction_id"])
 
 if __name__ == "__main__":
     unittest.main()
