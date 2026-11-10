@@ -9,7 +9,7 @@ import logging
 from intentlock.core.models import (
     IntentPayload, AggregatedSecurityVerdict, WorkstreamVerdict, SignedAuthorizationToken
 )
-from intentlock.core.config import config, find_project_path, get_trusted_public_key
+from intentlock.core.config import config, find_project_path, get_trusted_public_key, clean_hex_string
 from intentlock.core.errors import CryptographicSignatureError
 from intentlock.workstream1_verification.merchant_verifier import MerchantVerifier
 from intentlock.workstream1_verification.price_verifier import PriceVerifier
@@ -75,8 +75,8 @@ class IntentLockEngine:
         """
         Resolves private key bytes from:
         1. Explicit constructor argument
-        2. Environment variable INTENTLOCK_PRIVATE_KEY_HEX / INTENTLOCK_PRIVATE_KEY
-        3. Configured key file path (default keys/intentlock_private_key.hex)
+        2. Environment variables (.env or shell environment)
+        3. Local key files across directory tree
         Returns (key_bytes, is_persistent)
         """
         import os
@@ -84,36 +84,44 @@ class IntentLockEngine:
         if explicit_bytes is not None:
             return explicit_bytes, True
 
-        # Check environment variables (supporting standard and common aliases)
-        hex_env = (
-            os.getenv("INTENTLOCK_PRIVATE_KEY_HEX")
-            or os.getenv("INTENTLOCK_PRIVATE_KEY")
-            or os.getenv("PRIVATE_KEY_HEX")
-            or os.getenv("PRIVATE_KEY")
-            or os.getenv("ED25519_PRIVATE_KEY")
-        )
-        if hex_env:
-            hex_clean = hex_env.strip()
-            if len(hex_clean) == 64:
+        # 1. Check environment variables
+        env_varnames = [
+            "INTENTLOCK_PRIVATE_KEY_HEX",
+            "INTENTLOCK_PRIVATE_KEY",
+            "PRIVATE_KEY_HEX",
+            "PRIVATE_KEY",
+            "ED25519_PRIVATE_KEY",
+            "INTENTLOCK_SECURITY_PRIVATE_KEY",
+            "INTENTLOCK_KEY",
+        ]
+        for varname in env_varnames:
+            raw_val = os.getenv(varname)
+            cleaned = clean_hex_string(raw_val)
+            if cleaned:
                 try:
-                    return bytes.fromhex(hex_clean), True
+                    return bytes.fromhex(cleaned), True
                 except ValueError:
-                    logger.error("[IntentLock] Failed parsing private key from environment: Invalid hex string.")
-            else:
-                logger.error(f"[IntentLock] Private key in environment must be exactly 64 hex characters (got {len(hex_clean)}).")
+                    pass
 
-        # Check filesystem path
-        key_file_path = find_project_path(config.PRIVATE_KEY_PATH)
-        if key_file_path and os.path.isfile(key_file_path):
-            try:
-                with open(key_file_path, "r", encoding="utf-8") as f:
-                    hex_key = f.read().strip()
-                    if len(hex_key) == 64:
-                        return bytes.fromhex(hex_key), True
-                    else:
-                        logger.error(f"[IntentLock] Key file at {key_file_path} contains invalid length ({len(hex_key)} chars).")
-            except Exception as e:
-                logger.error(f"[IntentLock] Failed reading private key from {key_file_path}: {e}")
+        # 2. Check candidate key files
+        file_candidates = [
+            config.PRIVATE_KEY_PATH,
+            "keys/intentlock_private_key.hex",
+            "intentlock_private_key.hex",
+            "keys/private_key.hex",
+            "private_key.hex",
+            ".keys/intentlock_private_key.hex",
+        ]
+        for candidate in file_candidates:
+            key_file_path = find_project_path(candidate)
+            if key_file_path and os.path.isfile(key_file_path):
+                try:
+                    with open(key_file_path, "r", encoding="utf-8-sig", errors="ignore") as f:
+                        cleaned = clean_hex_string(f.read())
+                        if cleaned:
+                            return bytes.fromhex(cleaned), True
+                except Exception as e:
+                    logger.debug(f"[IntentLock] Could not read candidate {key_file_path}: {e}")
 
         return None, False
 
