@@ -1,11 +1,13 @@
 
 @import "tailwindcss";
 
-/* =========================================
-   1. INTENTLOCK BRAND VARIABLES
-========================================= */
+/* ============================================
+   INTENTLOCK - TEAL + WARM WHITE THEME
+============================================ */
 
 :root {
+  color-scheme: light;
+
   --brand-primary: #0D9488;
   --brand-hover: #0F766E;
   --brand-dark: #115E59;
@@ -18,14 +20,13 @@
   --text-secondary: #78716C;
 
   --border-color: #E7E5E4;
-
   --teal-light: #E6F4F1;
   --teal-border: #BFE7DF;
 }
 
-/* =========================================
-   2. GLOBAL BASE STYLES
-========================================= */
+/* ============================================
+   1. GLOBAL BASE STYLES
+============================================ */
 
 * {
   box-sizing: border-box;
@@ -34,6 +35,7 @@
 html {
   scroll-behavior: smooth;
   color-scheme: light;
+  background: var(--page-background);
 }
 
 body {
@@ -43,7 +45,6 @@ body {
   color: var(--text-primary);
   font-family: Inter, "Segoe UI", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
-  transition: background-color 300ms ease, color 300ms ease;
 }
 
 button,
@@ -59,14 +60,14 @@ button:disabled {
 
 .app-shell {
   min-height: 100vh;
+  width: 100%;
   background: var(--page-background);
   color: var(--text-primary);
-  transition: background-color 300ms ease, color 300ms ease;
 }
 
-/* =========================================
-   3. LIGHT THEME BACKGROUNDS
-========================================= */
+/* ============================================
+   2. PAGE BACKGROUNDS
+============================================ */
 
 .bg-white {
   background-color: var(--card-background) !important;
@@ -80,9 +81,9 @@ button:disabled {
   background-color: #EEECE6 !important;
 }
 
-/* =========================================
-   4. LIGHT THEME TEXT / BORDERS
-========================================= */
+/* ============================================
+   3. TEXT COLORS
+============================================ */
 
 .text-slate-900,
 .text-slate-800 {
@@ -95,15 +96,13 @@ button:disabled {
   color: var(--text-secondary) !important;
 }
 
-.border-slate-100,
-.border-slate-200,
-.border-slate-300 {
-  border-color: var(--border-color) !important;
-}
+/* ============================================
+   4. BRAND COLOR REPLACEMENTS
+   Replace blue, indigo, purple and violet
+   with the IntentLock teal brand.
+============================================ */
 
-/* =========================================
-   5. BRAND COLOR REPLACEMENTS
-========================================= */
+/* Soft brand backgrounds */
 
 .bg-blue-50,
 .bg-blue-100,
@@ -122,6 +121,8 @@ button:disabled {
   background-color: var(--teal-light) !important;
   color: var(--brand-hover) !important;
 }
+
+/* Solid brand backgrounds */
 
 .bg-blue-500,
 .bg-blue-600,
@@ -145,6 +146,8 @@ button:disabled {
   background-color: var(--brand-primary) !important;
   color: #FFFFFF !important;
 }
+
+/* Brand text */
 
 .text-blue-400,
 .text-blue-500,
@@ -175,6 +178,8 @@ button:disabled {
   color: var(--brand-primary) !important;
 }
 
+/* Brand borders */
+
 .border-blue-100,
 .border-blue-200,
 .border-indigo-100,
@@ -192,6 +197,8 @@ button:disabled {
   border-color: var(--teal-border) !important;
 }
 
+/* Brand hover backgrounds */
+
 .hover\:bg-blue-50:hover,
 .hover\:bg-blue-100:hover,
 .hover\:bg-indigo-50:hover,
@@ -205,6 +212,8 @@ button:disabled {
   background-color: #D1EEE8 !important;
 }
 
+/* Brand hover text */
+
 .hover\:text-blue-700:hover,
 .hover\:text-indigo-700:hover,
 .hover\:text-purple-700:hover,
@@ -212,6 +221,8 @@ button:disabled {
 .hover\:text-teal-700:hover {
   color: var(--brand-hover) !important;
 }
+
+/* Focus rings */
 
 .focus\:ring-blue-500:focus,
 .focus\:ring-indigo-500:focus,
@@ -221,41 +232,36 @@ button:disabled {
   --tw-ring-color: var(--brand-primary) !important;
 }
 
-/* =========================================
-   6. CARD HOVER EFFECT
-========================================= */
+/* ============================================
+   5. BORDERS
+============================================ */
 
-.card {
-  transition:
-    transform 250ms ease,
-    box-shadow 250ms ease,
-    border-color 250ms ease;
+.border-slate-100,
+.border-slate-200,
+.border-slate-300 {
+  border-color: var(--border-color) !important;
 }
 
-.card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 30px rgba(13, 148, 136, 0.10);
-  border-color: var(--teal-border);
-}
-
-/* =========================================
-   4. PRIMARY GRADIENT BUTTON
-========================================= */
+/* ============================================
+   6. PRIMARY BUTTONS
+============================================ */
 
 .gradient-button {
   background: linear-gradient(
     135deg,
     var(--brand-primary),
     var(--brand-hover)
-  );
-  color: white;
+  ) !important;
+
+  color: #FFFFFF !important;
+  border: none;
+
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.2);
 
   transition:
     transform 200ms ease,
     box-shadow 200ms ease,
-    filter 200ms ease;
-
-  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.2);
+    background-color 200ms ease;
 }
 
 .gradient-button:hover {
@@ -263,17 +269,14 @@ button:disabled {
     135deg,
     var(--brand-hover),
     var(--brand-dark)
-  );
+  ) !important;
+
   box-shadow: 0 8px 20px rgba(13, 148, 136, 0.25);
 }
 
 .gradient-button:active {
   transform: scale(0.97);
 }
-
-/* =========================================
-   5. GENERAL BUTTON INTERACTIONS
-========================================= */
 
 button {
   transition:
@@ -287,9 +290,73 @@ button:active:not(:disabled) {
   transform: scale(0.97);
 }
 
-/* =========================================
-   6. SECURITY ACTIVE PULSE
-========================================= */
+/* Settings toggles */
+
+button[role="switch"][aria-checked="true"],
+[role="switch"][aria-checked="true"] {
+  background-color: var(--brand-primary) !important;
+}
+
+/* ============================================
+   7. CARD HOVER EFFECT
+============================================ */
+
+.card {
+  transition:
+    transform 250ms ease,
+    box-shadow 250ms ease,
+    border-color 250ms ease;
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px rgba(13, 148, 136, 0.10);
+  border-color: var(--teal-border) !important;
+}
+
+/* ============================================
+   8. NAVBAR
+============================================ */
+
+header {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-color: var(--border-color) !important;
+
+  box-shadow: 0 2px 12px rgba(28, 25, 23, 0.03);
+
+  transition:
+    background-color 300ms ease,
+    border-color 300ms ease,
+    box-shadow 300ms ease;
+}
+
+header button,
+header a {
+  transition: all 200ms ease;
+}
+
+/* Active navigation link */
+
+header a[aria-current="page"] {
+  background-color: var(--teal-light) !important;
+  color: var(--brand-hover) !important;
+}
+
+/* Notification button */
+
+header button[aria-label="Notifications"] {
+  background-color: var(--teal-light) !important;
+  color: var(--brand-hover) !important;
+  border: 1px solid var(--teal-border) !important;
+}
+
+header button[aria-label="Notifications"]:hover {
+  background-color: #D1EEE8 !important;
+}
+
+/* ============================================
+   9. SECURITY ACTIVE PULSE
+============================================ */
 
 @keyframes securityPulse {
   0% {
@@ -309,9 +376,9 @@ button:active:not(:disabled) {
   animation: securityPulse 1.8s infinite;
 }
 
-/* =========================================
-   7. SHIELD PULSE
-========================================= */
+/* ============================================
+   10. SHIELD PULSE
+============================================ */
 
 @keyframes shieldPulse {
   0% {
@@ -338,9 +405,9 @@ button:active:not(:disabled) {
   animation: shieldPulse 650ms ease-out;
 }
 
-/* =========================================
-   8. DASHBOARD ACTIVITY ANIMATION
-========================================= */
+/* ============================================
+   11. DASHBOARD ACTIVITY ANIMATION
+============================================ */
 
 @keyframes activityEnter {
   from {
@@ -354,9 +421,9 @@ button:active:not(:disabled) {
   }
 }
 
-/* =========================================
-   9. CHECKOUT SECURITY SCANNER
-========================================= */
+/* ============================================
+   12. CHECKOUT SECURITY SCANNER
+============================================ */
 
 .scanner-active {
   animation: scannerGlow 1.5s ease-in-out infinite alternate;
@@ -379,8 +446,8 @@ button:active:not(:disabled) {
   height: 3px;
   top: 12%;
   border-radius: 10px;
-  background: var(--brand-primary);
-  box-shadow: 0 0 12px var(--brand-primary);
+  background: var(--brand-accent);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.5);
   animation: scanSweep 1.2s ease-in-out infinite alternate;
 }
 
@@ -464,22 +531,25 @@ button:active:not(:disabled) {
 }
 
 @keyframes blockedShake {
-  0%, 100% {
+  0%,
+  100% {
     transform: translateX(0);
   }
 
-  20%, 60% {
+  20%,
+  60% {
     transform: translateX(-6px);
   }
 
-  40%, 80% {
+  40%,
+  80% {
     transform: translateX(6px);
   }
 }
 
-/* =========================================
-   10. PAGE TRANSITIONS
-========================================= */
+/* ============================================
+   13. PAGE TRANSITIONS
+============================================ */
 
 @keyframes pageEnter {
   from {
@@ -498,248 +568,78 @@ button:active:not(:disabled) {
   min-height: calc(100vh - 72px);
 }
 
-/* =========================================
-   11. NAVBAR / HEADER STATES
-========================================= */
+/* ============================================
+   14. TOAST NOTIFICATIONS
+============================================ */
 
-header {
-  background: rgba(255, 255, 255, 0.96) !important;
-  border-color: var(--border-color) !important;
+@keyframes toastEnter {
+  from {
+    opacity: 0;
+    transform: translateX(35px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
 }
 
-header a[aria-current="page"] {
-  background-color: var(--teal-light) !important;
-  color: var(--brand-hover) !important;
+.toast-enter {
+  animation: toastEnter 300ms ease-out both;
 }
 
-header button[aria-label="Notifications"] {
-  background-color: var(--teal-light) !important;
-  color: var(--brand-hover) !important;
-  border: 1px solid var(--teal-border) !important;
+/* ============================================
+   15. SKELETON LOADING ANIMATION
+============================================ */
+
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: #E7E5E4;
 }
 
-header button[aria-label="Notifications"]:hover {
-  background-color: #D1EEE8 !important;
-}
+.skeleton-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
 
-/* =========================================
-   12. NAVBAR
-========================================= */
-
-header {
-  transition:
-    background-color 300ms ease,
-    border-color 300ms ease,
-    box-shadow 300ms ease;
-
-  box-shadow: 0 2px 12px rgba(28, 25, 23, 0.03);
-}
-
-header button,
-header a {
-  transition: all 200ms ease;
-}
-
-/* =========================================
-   12. LIGHT THEME BACKGROUNDS
-========================================= */
-
-html:not(.dark) body,
-html:not(.dark) .app-shell {
-  background-color: var(--page-background);
-  color: var(--text-primary);
-}
-
-html:not(.dark) .bg-white {
-  background-color: var(--card-background);
-}
-
-html:not(.dark) .bg-slate-50 {
-  background-color: var(--page-background);
-}
-
-html:not(.dark) .bg-slate-100 {
-  background-color: #EEECE6;
-}
-
-/* =========================================
-   13. LIGHT THEME TEXT
-========================================= */
-
-html:not(.dark) .text-slate-900,
-html:not(.dark) .text-slate-800 {
-  color: var(--text-primary);
-}
-
-html:not(.dark) .text-slate-700,
-html:not(.dark) .text-slate-600,
-html:not(.dark) .text-slate-500 {
-  color: var(--text-secondary);
-}
-
-/* =========================================
-   14. LIGHT THEME BORDERS
-========================================= */
-
-html:not(.dark) .border-slate-100,
-html:not(.dark) .border-slate-200,
-html:not(.dark) .border-slate-300 {
-  border-color: var(--border-color);
-}
-
-/* =========================================
-   15. REMOVE BLUE AND PURPLE BRAND COLORS
-========================================= */
-
-/* Soft blue, indigo, purple and violet backgrounds */
-
-html:not(.dark) .bg-blue-50,
-html:not(.dark) .bg-blue-100,
-html:not(.dark) .bg-indigo-50,
-html:not(.dark) .bg-indigo-100,
-html:not(.dark) .bg-purple-50,
-html:not(.dark) .bg-purple-100,
-html:not(.dark) .bg-violet-50,
-html:not(.dark) .bg-violet-100 {
-  background-color: var(--teal-light) !important;
-  color: var(--brand-hover) !important;
-}
-
-/* Solid blue and purple backgrounds */
-
-html:not(.dark) .bg-blue-500,
-html:not(.dark) .bg-blue-600,
-html:not(.dark) .bg-blue-700,
-html:not(.dark) .bg-indigo-500,
-html:not(.dark) .bg-indigo-600,
-html:not(.dark) .bg-indigo-700,
-html:not(.dark) .bg-purple-500,
-html:not(.dark) .bg-purple-600,
-html:not(.dark) .bg-purple-700,
-html:not(.dark) .bg-violet-500,
-html:not(.dark) .bg-violet-600,
-html:not(.dark) .bg-violet-700 {
-  background-color: var(--brand-primary) !important;
-  color: white !important;
-}
-
-/* Blue and purple text */
-
-html:not(.dark) .text-blue-400,
-html:not(.dark) .text-blue-500,
-html:not(.dark) .text-blue-600,
-html:not(.dark) .text-blue-700,
-html:not(.dark) .text-blue-800,
-html:not(.dark) .text-blue-900,
-html:not(.dark) .text-indigo-400,
-html:not(.dark) .text-indigo-500,
-html:not(.dark) .text-indigo-600,
-html:not(.dark) .text-indigo-700,
-html:not(.dark) .text-indigo-800,
-html:not(.dark) .text-purple-400,
-html:not(.dark) .text-purple-500,
-html:not(.dark) .text-purple-600,
-html:not(.dark) .text-purple-700,
-html:not(.dark) .text-violet-400,
-html:not(.dark) .text-violet-500,
-html:not(.dark) .text-violet-600,
-html:not(.dark) .text-violet-700 {
-  color: var(--brand-primary) !important;
-}
-
-/* Blue and purple borders */
-
-html:not(.dark) .border-blue-100,
-html:not(.dark) .border-blue-200,
-html:not(.dark) .border-indigo-100,
-html:not(.dark) .border-indigo-200,
-html:not(.dark) .border-purple-100,
-html:not(.dark) .border-purple-200,
-html:not(.dark) .border-violet-100,
-html:not(.dark) .border-violet-200 {
-  border-color: var(--teal-border) !important;
-}
-
-/* Blue and purple hover backgrounds */
-
-html:not(.dark) .hover\:bg-blue-50:hover,
-html:not(.dark) .hover\:bg-blue-100:hover,
-html:not(.dark) .hover\:bg-indigo-50:hover,
-html:not(.dark) .hover\:bg-indigo-100:hover,
-html:not(.dark) .hover\:bg-purple-50:hover,
-html:not(.dark) .hover\:bg-purple-100:hover,
-html:not(.dark) .hover\:bg-violet-50:hover,
-html:not(.dark) .hover\:bg-violet-100:hover {
-  background-color: #D1EEE8 !important;
-}
-
-/* Solid button hover */
-
-html:not(.dark) .hover\:bg-blue-700:hover,
-html:not(.dark) .hover\:bg-indigo-700:hover,
-html:not(.dark) .hover\:bg-purple-700:hover,
-html:not(.dark) .hover\:bg-violet-700:hover {
-  background-color: var(--brand-hover) !important;
-}
-
-/* Hover text */
-
-html:not(.dark) .hover\:text-blue-700:hover,
-html:not(.dark) .hover\:text-indigo-700:hover,
-html:not(.dark) .hover\:text-purple-700:hover,
-html:not(.dark) .hover\:text-violet-700:hover {
-  color: var(--brand-hover) !important;
-}
-
-/* Shadows */
-
-html:not(.dark) .shadow-blue-100,
-html:not(.dark) .shadow-indigo-100,
-html:not(.dark) .shadow-indigo-200,
-html:not(.dark) .shadow-purple-100 {
-  --tw-shadow-color: rgba(13, 148, 136, 0.15);
-}
-
-/* Focus rings */
-
-html:not(.dark) .focus\:ring-blue-500:focus,
-html:not(.dark) .focus\:ring-indigo-500:focus,
-html:not(.dark) .focus\:ring-purple-500:focus,
-html:not(.dark) .focus\:ring-violet-500:focus {
-  --tw-ring-color: var(--brand-primary) !important;
-}
-
-/* =========================================
-   16. PRIMARY BUTTONS AND TOGGLES
-========================================= */
-
-html:not(.dark) .gradient-button {
   background: linear-gradient(
-    135deg,
-    var(--brand-primary),
-    var(--brand-hover)
-  ) !important;
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.7),
+    transparent
+  );
 
-  color: white !important;
+  animation: skeletonShimmer 1.5s infinite;
 }
 
-html:not(.dark) button[role="switch"][aria-checked="true"],
-html:not(.dark) [role="switch"][aria-checked="true"] {
-  background-color: var(--brand-primary) !important;
+@keyframes skeletonShimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }
 
-/* =========================================
-   17. BRAND SHADOWS AND HOVER EFFECTS
-========================================= */
+/* ============================================
+   16. AI TYPING ANIMATION
+============================================ */
 
-html:not(.dark) .card:hover {
-  box-shadow: 0 12px 30px rgba(13, 148, 136, 0.10);
-  border-color: var(--teal-border);
+.typing-cursor {
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--brand-primary);
+  animation: cursorBlink 700ms steps(2, start) infinite;
 }
 
-html:not(.dark) .hover\:bg-slate-100:hover {
-  background-color: var(--teal-light);
+@keyframes cursorBlink {
+  to {
+    visibility: hidden;
+  }
 }
+
+/* ============================================
+   17. FOCUS AND INPUT STYLES
+============================================ */
 
 input:focus,
 textarea:focus,
@@ -760,9 +660,9 @@ textarea::placeholder {
   color: #A8A29E;
 }
 
-/* =========================================
+/* ============================================
    18. AMBER ACCENT
-========================================= */
+============================================ */
 
 .brand-accent,
 .text-amber-500,
@@ -771,10 +671,12 @@ textarea::placeholder {
   color: #D97706 !important;
 }
 
-html:not(.dark) .text-amber-500,
-html:not(.dark) .text-amber-600 {
-  color: var(--brand-accent);
-}
+/* ============================================
+   19. PRESERVE TRANSACTION STATUS COLORS
+   Green = Approved
+   Red = Blocked
+   Amber = Pending
+============================================ */
 
 /* Successful transactions */
 
@@ -809,260 +711,17 @@ html:not(.dark) .text-amber-600 {
   color: #B45309 !important;
 }
 
-/* =========================================
-   19. DARK MODE
-========================================= */
-
-html.dark {
-  color-scheme: dark;
-}
-
-html.dark body,
-html.dark .app-shell {
-  background: #0B1120 !important;
-  color: #E2E8F0 !important;
-}
-
-/* Navbar */
-
-html.dark header {
-  background: rgba(11, 17, 32, 0.95) !important;
-  border-color: #26364D !important;
-  box-shadow: 0 2px 15px rgba(0, 0, 0, 0.2);
-}
-
-/* White containers */
-
-html.dark .bg-white {
-  background-color: #111C2F !important;
-}
-
-/* Light backgrounds */
-
-html.dark .bg-slate-50 {
-  background-color: #162338 !important;
-}
-
-html.dark .bg-slate-100 {
-  background-color: #1E293B !important;
-}
-
-/* Text */
-
-html.dark .text-slate-900 {
-  color: #F8FAFC !important;
-}
-
-html.dark .text-slate-800 {
-  color: #E2E8F0 !important;
-}
-
-html.dark .text-slate-700,
-html.dark .text-slate-600,
-html.dark .text-slate-500 {
-  color: #CBD5E1 !important;
-}
-
-/* Borders */
-
-html.dark .border-slate-100,
-html.dark .border-slate-200,
-html.dark .border-slate-300 {
-  border-color: #26364D !important;
-}
-
-/* Replace blue and purple backgrounds with dark teal */
-
-html.dark .bg-blue-50,
-html.dark .bg-blue-100,
-html.dark .bg-indigo-50,
-html.dark .bg-indigo-100,
-html.dark .bg-purple-50,
-html.dark .bg-purple-100,
-html.dark .bg-violet-50,
-html.dark .bg-violet-100 {
-  background-color: #123C3A !important;
-  color: #5EEAD4 !important;
-}
-
-/* Solid blue/purple backgrounds */
-
-html.dark .bg-blue-500,
-html.dark .bg-blue-600,
-html.dark .bg-indigo-500,
-html.dark .bg-indigo-600,
-html.dark .bg-purple-500,
-html.dark .bg-purple-600,
-html.dark .bg-violet-500,
-html.dark .bg-violet-600 {
-  background-color: #0F766E !important;
-  color: white !important;
-}
-
-/* Brand text */
-
-html.dark .text-blue-400,
-html.dark .text-blue-500,
-html.dark .text-blue-600,
-html.dark .text-blue-700,
-html.dark .text-indigo-400,
-html.dark .text-indigo-500,
-html.dark .text-indigo-600,
-html.dark .text-indigo-700,
-html.dark .text-purple-400,
-html.dark .text-purple-500,
-html.dark .text-purple-600,
-html.dark .text-purple-700,
-html.dark .text-violet-400,
-html.dark .text-violet-500,
-html.dark .text-violet-600,
-html.dark .text-violet-700 {
-  color: #5EEAD4 !important;
-}
-
-/* Navbar buttons */
-
-html.dark header button {
-  border-color: #334155;
-  background-color: #172338;
-  color: #E2E8F0;
-}
-
-html.dark header button:hover {
-  background-color: #26364D;
-}
-
-/* Inputs */
-
-html.dark input,
-html.dark textarea,
-html.dark select {
-  background-color: #111C2F;
-  color: #F8FAFC;
-  border-color: #334155;
-}
-
-html.dark input::placeholder,
-html.dark textarea::placeholder {
-  color: #94A3B8;
-}
-
-/* Cards */
-
-html.dark .card {
-  border-color: #26364D;
-}
-
-html.dark .card:hover {
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
-}
-
-/* Dark mode teal buttons */
-
-html.dark .gradient-button {
-  background: linear-gradient(135deg, #0F766E, #115E59) !important;
-  color: white !important;
-}
-
-html.dark button[role="switch"][aria-checked="true"],
-html.dark [role="switch"][aria-checked="true"] {
-  background-color: #0D9488 !important;
-}
-
-/* =========================================
-   20. TOAST NOTIFICATIONS
-========================================= */
-
-@keyframes toastEnter {
-  from {
-    opacity: 0;
-    transform: translateX(35px) scale(0.96);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0) scale(1);
-  }
-}
-
-.toast-enter {
-  animation: toastEnter 300ms ease-out both;
-}
-
-html.dark .toast-enter {
-  background-color: #111C2F !important;
-  border-color: #334155 !important;
-}
-
-/* =========================================
-   21. SKELETON LOADING ANIMATION
-========================================= */
-
-.skeleton-shimmer {
-  position: relative;
-  overflow: hidden;
-  background: #E7E5E4;
-}
-
-.skeleton-shimmer::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  transform: translateX(-100%);
-
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.7),
-    transparent
-  );
-
-  animation: skeletonShimmer 1.5s infinite;
-}
-
-@keyframes skeletonShimmer {
-  100% {
-    transform: translateX(100%);
-  }
-}
-
-html.dark .skeleton-shimmer {
-  background: #26364D;
-}
-
-html.dark .skeleton-shimmer::after {
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.08),
-    transparent
-  );
-}
+/* ============================================
+   20. LINKS
+============================================ */
 
 a {
   transition: color 200ms ease;
 }
 
-/* =========================================
-   22. AI TYPING ANIMATION
-========================================= */
-
-.typing-cursor {
-  display: inline-block;
-  margin-left: 2px;
-  color: var(--brand-primary);
-  animation: cursorBlink 700ms steps(2, start) infinite;
-}
-
-@keyframes cursorBlink {
-  to {
-    visibility: hidden;
-  }
-}
-
-/* =========================================
-   23. ACCESSIBILITY - REDUCED MOTION
-========================================= */
+/* ============================================
+   21. ACCESSIBILITY - REDUCED MOTION
+============================================ */
 
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -1091,10 +750,7 @@ a {
   }
 
   body,
-  .app-shell {
-    transition: none !important;
-  }
-
+  .app-shell,
   header,
   header button,
   header a {

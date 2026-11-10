@@ -1,5 +1,6 @@
 
 import { useEffect, useState } from "react";
+
 import {
   ShoppingBag,
   IndianRupee,
@@ -14,6 +15,7 @@ import {
   LockKeyhole,
   TrendingUp,
 } from "lucide-react";
+
 import { useNavigate } from "react-router-dom";
 
 function AnimatedCounter({ target, prefix = "", duration = 1400 }) {
@@ -169,6 +171,7 @@ function Dashboard() {
             <p className="text-sm font-semibold text-green-700">
               Security Active
             </p>
+
             <p className="text-xs text-green-600">
               Protection interface enabled
             </p>
@@ -361,6 +364,7 @@ function Dashboard() {
               <h3 className="font-semibold text-stone-900">
                 Start AI Shopping
               </h3>
+
               <p className="mt-1 text-sm text-stone-500">
                 Find products using AI.
               </p>
@@ -379,6 +383,7 @@ function Dashboard() {
               <h3 className="font-semibold text-stone-900">
                 Compare Products
               </h3>
+
               <p className="mt-1 text-sm text-stone-500">
                 Compare product specifications.
               </p>
@@ -397,6 +402,7 @@ function Dashboard() {
               <h3 className="font-semibold text-stone-900">
                 View Transactions
               </h3>
+
               <p className="mt-1 text-sm text-stone-500">
                 Review your purchase history.
               </p>
