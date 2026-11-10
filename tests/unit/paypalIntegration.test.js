@@ -17,6 +17,7 @@ import {
   hashReturnToken
 } from '../../src/utils/cryptoUtils.js';
 import { hashCanonicalJson } from '../../src/utils/canonicalJson.js';
+import { trustedKeyRegistry } from '../../src/services/TrustedKeyRegistry.js';
 import { dispatchRequest } from '../helpers/testClient.js';
 
 describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhooks', () => {
@@ -80,12 +81,21 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
     const canonicalJsonHash = hashCanonicalJson(canonicalPayload);
     const signature = signEd25519(canonicalJsonHash, keyPair.privateKey);
 
+    trustedKeyRegistry.registerKey({
+      keyId: env.ED25519_KEY_ID,
+      publicKeyHex: keyPair.publicKeyHex,
+      status: 'ACTIVE'
+    });
+
     mockAuthRecord = {
       _id: new mongoose.Types.ObjectId(),
       authorizationId,
       intentId: 'int_123',
       intentVersion: 1,
       proposalId: 'prop_456',
+      snapshotId: 'snap_789',
+      issuedAt: now,
+      keyId: env.ED25519_KEY_ID,
       nonce,
       userId,
       snapshotHash: 'c'.repeat(64),
@@ -364,7 +374,8 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
         },
         body: {
           orderId: 'PAYPAL_ORDER_TO_CAPTURE',
-          authorizationId: mockAuthRecord.authorizationId
+          authorizationId: mockAuthRecord.authorizationId,
+          userConsent: true
         }
       });
 
@@ -408,7 +419,8 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
         },
         body: {
           orderId: 'PAYPAL_ORDER_ALREADY_CAPTURED',
-          authorizationId: mockAuthRecord.authorizationId
+          authorizationId: mockAuthRecord.authorizationId,
+          userConsent: true
         }
       });
 
@@ -442,7 +454,8 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
         },
         body: {
           orderId: 'PAYPAL_ORDER_AUTH_MISMATCH',
-          authorizationId: 'auth_completely_different_attacker'
+          authorizationId: 'auth_completely_different_attacker',
+          userConsent: true
         }
       });
 

@@ -24,6 +24,10 @@ describe('Step 2.4.2: AuthorizationRepository (Atomic Nonce Management)', () => 
   describe('createAuthorization', () => {
     it('successfully saves a new authorization record in PENDING state', async () => {
       const mockRecordData = {
+        authorizationId: 'auth_test_123',
+        paypalMerchantId: 'PPM_TEST_123',
+        snapshotId: new mongoose.Types.ObjectId(),
+        issuedAt: new Date(),
         proposalId: new mongoose.Types.ObjectId(),
         intentId: new mongoose.Types.ObjectId(),
         userId: new mongoose.Types.ObjectId(),
@@ -46,6 +50,7 @@ describe('Step 2.4.2: AuthorizationRepository (Atomic Nonce Management)', () => 
       const result = await repository.createAuthorization(mockRecordData);
       expect(result.status).toBe('PENDING');
       expect(result.nonce).toBe('nonce_123');
+      expect(result.authorizationId).toBe('auth_test_123');
     });
 
     it('throws DuplicateNonceError when nonce already exists (E11000)', async () => {
@@ -57,6 +62,36 @@ describe('Step 2.4.2: AuthorizationRepository (Atomic Nonce Management)', () => 
       await expect(
         repository.createAuthorization({ nonce: 'duplicate_nonce' })
       ).rejects.toThrow(DuplicateNonceError);
+    });
+  });
+
+  describe('findByAuthorizationId', () => {
+    it('returns null if authorizationId is falsy', async () => {
+      const result = await repository.findByAuthorizationId(null);
+      expect(result).toBeNull();
+    });
+
+    it('queries by MongoDB _id and authorizationId string', async () => {
+      const mockDoc = { authorizationId: 'auth_custom_string' };
+      const findOneSpy = vi.spyOn(AuthorizationRecord, 'findOne').mockResolvedValueOnce(mockDoc);
+
+      const result = await repository.findByAuthorizationId('auth_custom_string');
+      expect(result).toEqual(mockDoc);
+      expect(findOneSpy).toHaveBeenCalledWith({
+        $or: [{ _id: null }, { authorizationId: 'auth_custom_string' }]
+      });
+    });
+
+    it('queries with valid 24-hex ObjectId in _id branch', async () => {
+      const hex24 = '672d1a2b8e34f190ab78c0aa';
+      const mockDoc = { _id: hex24, authorizationId: 'auth_abc' };
+      const findOneSpy = vi.spyOn(AuthorizationRecord, 'findOne').mockResolvedValueOnce(mockDoc);
+
+      const result = await repository.findByAuthorizationId(hex24);
+      expect(result).toEqual(mockDoc);
+      expect(findOneSpy).toHaveBeenCalledWith({
+        $or: [{ _id: hex24 }, { authorizationId: hex24 }]
+      });
     });
   });
 

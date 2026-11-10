@@ -8,8 +8,10 @@ import { canonicalJsonSha256, computeSnapshotCanonicalHash } from '../utils/cano
 import {
   generateNonce,
   signMessage,
-  generateEd25519KeyPair
+  generateEd25519KeyPair,
+  validateEd25519KeyPair
 } from '../utils/cryptoUtils.js';
+import { trustedKeyRegistry } from './TrustedKeyRegistry.js';
 
 // Verified merchant to PayPal merchant ID directory
 export const VERIFIED_MERCHANTS = {
@@ -34,11 +36,17 @@ export class SecurityFirewallService {
   getKeyPair() {
     if (!this._keyPair) {
       if (env.ED25519_PRIVATE_KEY && env.ED25519_PUBLIC_KEY) {
+        if (!validateEd25519KeyPair(env.ED25519_PRIVATE_KEY, env.ED25519_PUBLIC_KEY)) {
+          throw new Error('SECURITY VIOLATION: Configured ED25519_PUBLIC_KEY does not match ED25519_PRIVATE_KEY.');
+        }
         this._keyPair = {
           publicKeyHex: env.ED25519_PUBLIC_KEY,
           privateKeyHex: env.ED25519_PRIVATE_KEY
         };
       } else {
+        if (env.NODE_ENV === 'production') {
+          throw new Error('SECURITY VIOLATION: Ephemeral signing key generation prohibited in production.');
+        }
         // Generate development keypair if not configured in environment
         const generated = generateEd25519KeyPair();
         this._keyPair = {
@@ -46,6 +54,11 @@ export class SecurityFirewallService {
           privateKeyHex: generated.privateKeyHex
         };
       }
+      trustedKeyRegistry.registerKey({
+        keyId: env.ED25519_KEY_ID || 'FIREWALL_KEY_PRIMARY',
+        publicKeyHex: this._keyPair.publicKeyHex,
+        status: 'ACTIVE'
+      });
     }
     return this._keyPair;
   }
@@ -398,30 +411,28 @@ export class SecurityFirewallService {
     const signature = signMessage(canonicalJsonHash, privateKeyHex);
 
     // Persist AuthorizationRecord in PENDING state
-    try {
-      await authorizationRepository.createAuthorization({
-        authorizationId,
-        intentId: intent.id,
-        intentVersion: intent.version || 1,
-        proposalId: effectiveSnapshot.proposalId,
-        snapshotId: effectiveSnapshot.snapshotId,
-        snapshotHash: effectiveSnapshotHash,
-        userId,
-        paypalMerchantId: effectiveSnapshot.paypalMerchantId,
-        totalPriceMinor: BigInt(effectiveSnapshot.pricing.totalPriceMinor),
-        currency: effectiveSnapshot.pricing.currency,
-        nonce,
-        signature,
-        publicKey: publicKeyHex,
-        keyId: env.ED25519_KEY_ID,
-        authMode,
-        status: 'PENDING',
-        issuedAt: now,
-        expiresAt: expiresAtDate
-      });
-    } catch {
-      // In-memory or unseeded fallback during unit tests
-    }
+    // Required persistence must NOT be silently swallowed; failure prevents valid authorization issuance.
+    await authorizationRepository.createAuthorization({
+      authorizationId,
+      intentId: intent.id,
+      intentVersion: intent.version || 1,
+      proposalId: effectiveSnapshot.proposalId,
+      snapshotId: effectiveSnapshot.snapshotId,
+      snapshotHash: effectiveSnapshotHash,
+      userId,
+      paypalMerchantId: effectiveSnapshot.paypalMerchantId,
+      authorizedAmountMinor: BigInt(effectiveSnapshot.pricing.totalPriceMinor),
+      currency: effectiveSnapshot.pricing.currency,
+      nonce,
+      canonicalJsonHash,
+      signature,
+      publicKey: publicKeyHex,
+      keyId: env.ED25519_KEY_ID,
+      authMode,
+      status: 'PENDING',
+      issuedAt: now,
+      expiresAt: expiresAtDate
+    });
 
     return {
       decision: 'PASS',

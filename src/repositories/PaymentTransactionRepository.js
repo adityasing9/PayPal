@@ -100,6 +100,100 @@ export class PaymentTransactionRepository {
   }
 
   /**
+   * Atomically claims or reclaims an exclusive capture lease on a transaction (SEC-06 & SEC-10).
+   * Monotonically increments attemptVersion as a fencing token.
+   *
+   * @param {{
+   *   transactionId: string | import('mongoose').Types.ObjectId,
+   *   attemptId: string,
+   *   leaseDurationMs?: number,
+   *   workerId?: string,
+   *   now?: Date
+   * }} params
+   * @returns {Promise<import('mongoose').Document | null>}
+   */
+  async claimCaptureLease({
+    transactionId,
+    attemptId,
+    leaseDurationMs = 15000,
+    workerId = 'worker',
+    now = new Date()
+  }) {
+    const leaseExpiresAt = new Date(now.getTime() + leaseDurationMs);
+
+    return PaymentTransaction.findOneAndUpdate(
+      {
+        _id: transactionId,
+        $or: [
+          { status: { $in: ['CREATED', 'APPROVED_BY_USER'] } },
+          { status: 'CAPTURING', leaseExpiresAt: { $lt: now } } // Reclaim expired lease
+        ]
+      },
+      {
+        $set: {
+          status: 'CAPTURING',
+          captureAttemptId: attemptId,
+          leaseOwner: workerId,
+          leaseExpiresAt,
+          capturingStartedAt: now
+        },
+        $inc: { attemptVersion: 1 } // Monotonic fencing token
+      },
+      {
+        new: true,
+        runValidators: true
+      }
+    );
+  }
+
+  /**
+   * Atomically settles capture verifying the monotonic fencing token (SEC-10).
+   * Stale workers with superseded attemptVersion cannot overwrite newer state.
+   *
+   * @param {{
+   *   transactionId: string | import('mongoose').Types.ObjectId,
+   *   attemptId: string,
+   *   attemptVersion: number,
+   *   paypalCaptureId: string,
+   *   payerEmail?: string,
+   *   sellerProtectionStatus?: string,
+   *   now?: Date
+   * }} params
+   * @returns {Promise<import('mongoose').Document | null>}
+   */
+  async settleCapture({
+    transactionId,
+    attemptId,
+    attemptVersion,
+    paypalCaptureId,
+    payerEmail = 'buyer@sandbox.paypal.com',
+    sellerProtectionStatus = 'ELIGIBLE',
+    now = new Date()
+  }) {
+    return PaymentTransaction.findOneAndUpdate(
+      {
+        _id: transactionId,
+        captureAttemptId: attemptId,
+        attemptVersion, // Fencing token verification
+        status: 'CAPTURING'
+      },
+      {
+        $set: {
+          status: 'COMPLETED',
+          paypalCaptureId,
+          payerEmail,
+          sellerProtectionStatus,
+          settledAt: now
+        }
+      },
+      {
+        new: true,
+        runValidators: true
+      }
+    );
+  }
+
+  /**
    * Generates and attaches an ephemeral single-use return token to a transaction.
    * Persists ONLY the SHA-256 hash in the database with a 60-second default TTL.
    *

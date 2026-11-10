@@ -14,6 +14,12 @@ const { Schema } = mongoose;
  */
 export const AuthorizationRecordSchema = new Schema(
   {
+    authorizationId: {
+      type: String,
+      required: [true, 'Authorization ID is required'],
+      unique: true,
+      index: true
+    },
     proposalId: {
       type: Schema.Types.ObjectId,
       ref: 'ProductProposal',
@@ -29,15 +35,25 @@ export const AuthorizationRecordSchema = new Schema(
       required: [true, 'Intent version is required'],
       default: 1
     },
+    snapshotId: {
+      type: Schema.Types.ObjectId,
+      ref: 'CheckoutSnapshot',
+      required: [true, 'Snapshot ID is required']
+    },
+    snapshotHash: {
+      type: String,
+      required: [true, 'Snapshot hash is required']
+    },
     userId: {
       type: Schema.Types.ObjectId,
       ref: 'User',
       required: [true, 'User ID is required'],
       index: true
     },
-    snapshotHash: {
+    paypalMerchantId: {
       type: String,
-      required: [true, 'Snapshot hash is required']
+      required: [true, 'PayPal merchant ID is required'],
+      index: true
     },
     algorithm: {
       type: String,
@@ -65,7 +81,11 @@ export const AuthorizationRecordSchema = new Schema(
     authorizedAmountMinor: {
       type: Schema.Types.BigInt,
       required: [true, 'Authorized minor units required'],
-      min: [0n, 'Authorized amount must be non-negative']
+      validate: {
+        validator: (v) => v === undefined || v === null || v >= 0n,
+        message: 'Authorized amount must be non-negative'
+      },
+      alias: 'totalPriceMinor'
     },
     currency: {
       type: String,
@@ -111,6 +131,10 @@ export const AuthorizationRecordSchema = new Schema(
       type: Date,
       default: null
     },
+    issuedAt: {
+      type: Date,
+      required: [true, 'Issued at timestamp is required']
+    },
     expiresAt: {
       type: Date,
       required: [true, 'Authorization expiry timestamp is required'],
@@ -134,6 +158,8 @@ export const AuthorizationRecordSchema = new Schema(
 
 // Indexes: Note that expiresAt is a standard B-tree index, NOT a TTL index.
 AuthorizationRecordSchema.index({ nonce: 1 }, { unique: true });
+AuthorizationRecordSchema.index({ authorizationId: 1 }, { unique: true });
+AuthorizationRecordSchema.index({ paypalMerchantId: 1 });
 AuthorizationRecordSchema.index({ idempotencyKey: 1 });
 AuthorizationRecordSchema.index({ status: 1 });
 AuthorizationRecordSchema.index({ expiresAt: 1 });

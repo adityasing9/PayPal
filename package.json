@@ -18,14 +18,14 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:agent": "node --test",
+    "test:agent": "node --test test/agent.test.js test/api.test.js",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
     "lint:frontend": "oxlint",
     "demo": "node demo.js",
     "verify": "node verify.js",
-    "check": "node --test && node verify.js"
+    "check": "node --test test/agent.test.js test/api.test.js && node verify.js"
   },
   "repository": {
     "type": "git",

@@ -113,6 +113,10 @@ describe('Step 2.4.1: Mongoose Models & Database Foundation', () => {
     it('handles large monetary values above Number.MAX_SAFE_INTEGER with exact precision', () => {
       const largeValue = 900719925474099200n; // Exceeds 2^53 - 1
       const record = new AuthorizationRecord({
+        authorizationId: 'auth_large_val',
+        paypalMerchantId: 'PPM_TEST',
+        snapshotId: new mongoose.Types.ObjectId(),
+        issuedAt: new Date(),
         proposalId: new mongoose.Types.ObjectId(),
         intentId: new mongoose.Types.ObjectId(),
         userId: new mongoose.Types.ObjectId(),
@@ -177,6 +181,10 @@ describe('Step 2.4.1: Mongoose Models & Database Foundation', () => {
 
       for (const status of validStatuses) {
         const record = new AuthorizationRecord({
+          authorizationId: 'auth_' + status,
+          paypalMerchantId: 'PPM_TEST',
+          snapshotId: new mongoose.Types.ObjectId(),
+          issuedAt: new Date(),
           proposalId: new mongoose.Types.ObjectId(),
           intentId: new mongoose.Types.ObjectId(),
           userId: new mongoose.Types.ObjectId(),
@@ -193,6 +201,10 @@ describe('Step 2.4.1: Mongoose Models & Database Foundation', () => {
       }
 
       const invalidRecord = new AuthorizationRecord({
+        authorizationId: 'auth_bad',
+        paypalMerchantId: 'PPM_TEST',
+        snapshotId: new mongoose.Types.ObjectId(),
+        issuedAt: new Date(),
         proposalId: new mongoose.Types.ObjectId(),
         intentId: new mongoose.Types.ObjectId(),
         userId: new mongoose.Types.ObjectId(),

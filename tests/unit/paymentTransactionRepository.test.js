@@ -154,4 +154,136 @@ describe('Step 2.4.4: PaymentTransactionRepository (Return-Token & Session Recov
       ).rejects.toThrow(InvalidReturnTokenError);
     });
   });
+
+  describe('claimCaptureLease (SEC-06 & SEC-10)', () => {
+    const transactionId = new mongoose.Types.ObjectId();
+    const attemptId = 'att_claim_123';
+    const now = new Date('2026-11-10T12:00:00Z');
+
+    it('claims lease on CREATED transaction and increments attemptVersion', async () => {
+      const mockClaimed = {
+        _id: transactionId,
+        status: 'CAPTURING',
+        attemptVersion: 1,
+        captureAttemptId: attemptId,
+        leaseOwner: 'worker_1',
+        leaseExpiresAt: new Date(now.getTime() + 15000)
+      };
+
+      const findOneAndUpdateSpy = vi
+        .spyOn(PaymentTransaction, 'findOneAndUpdate')
+        .mockResolvedValueOnce(mockClaimed);
+
+      const result = await repository.claimCaptureLease({
+        transactionId,
+        attemptId,
+        leaseDurationMs: 15000,
+        workerId: 'worker_1',
+        now
+      });
+
+      expect(result).toBe(mockClaimed);
+      expect(findOneAndUpdateSpy).toHaveBeenCalledWith(
+        {
+          _id: transactionId,
+          $or: [
+            { status: { $in: ['CREATED', 'APPROVED_BY_USER'] } },
+            { status: 'CAPTURING', leaseExpiresAt: { $lt: now } }
+          ]
+        },
+        {
+          $set: {
+            status: 'CAPTURING',
+            captureAttemptId: attemptId,
+            leaseOwner: 'worker_1',
+            leaseExpiresAt: new Date(now.getTime() + 15000),
+            capturingStartedAt: now
+          },
+          $inc: { attemptVersion: 1 }
+        },
+        {
+          new: true,
+          runValidators: true
+        }
+      );
+    });
+
+    it('returns null if lease claim fails (e.g. concurrent active lease)', async () => {
+      vi.spyOn(PaymentTransaction, 'findOneAndUpdate').mockResolvedValueOnce(null);
+
+      const result = await repository.claimCaptureLease({
+        transactionId,
+        attemptId,
+        now
+      });
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('settleCapture (SEC-10 Fencing Token Verification)', () => {
+    const transactionId = new mongoose.Types.ObjectId();
+    const attemptId = 'att_settle_456';
+    const now = new Date('2026-11-10T12:00:00Z');
+
+    it('settles capture when attemptVersion matches fencing token', async () => {
+      const mockSettled = {
+        _id: transactionId,
+        status: 'COMPLETED',
+        paypalCaptureId: 'CAP_SUCCESS_999',
+        settledAt: now
+      };
+
+      const findOneAndUpdateSpy = vi
+        .spyOn(PaymentTransaction, 'findOneAndUpdate')
+        .mockResolvedValueOnce(mockSettled);
+
+      const result = await repository.settleCapture({
+        transactionId,
+        attemptId,
+        attemptVersion: 1,
+        paypalCaptureId: 'CAP_SUCCESS_999',
+        payerEmail: 'buyer@example.com',
+        sellerProtectionStatus: 'ELIGIBLE',
+        now
+      });
+
+      expect(result).toBe(mockSettled);
+      expect(findOneAndUpdateSpy).toHaveBeenCalledWith(
+        {
+          _id: transactionId,
+          captureAttemptId: attemptId,
+          attemptVersion: 1,
+          status: 'CAPTURING'
+        },
+        {
+          $set: {
+            status: 'COMPLETED',
+            paypalCaptureId: 'CAP_SUCCESS_999',
+            payerEmail: 'buyer@example.com',
+            sellerProtectionStatus: 'ELIGIBLE',
+            settledAt: now
+          }
+        },
+        {
+          new: true,
+          runValidators: true
+        }
+      );
+    });
+
+    it('returns null if fencing token does not match (stale worker rejected)', async () => {
+      vi.spyOn(PaymentTransaction, 'findOneAndUpdate').mockResolvedValueOnce(null);
+
+      const result = await repository.settleCapture({
+        transactionId,
+        attemptId,
+        attemptVersion: 1, // Stale version
+        paypalCaptureId: 'CAP_LATE_ARRIVING',
+        now
+      });
+
+      expect(result).toBeNull();
+    });
+  });
 });

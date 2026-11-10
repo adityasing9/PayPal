@@ -58,6 +58,41 @@ export const PaymentTransactionSchema = new Schema(
       default: 'CREATED',
       required: true
     },
+    captureAttemptId: {
+      type: String,
+      default: null
+    },
+    attemptVersion: {
+      type: Number,
+      default: 0,
+      required: true
+    },
+    leaseOwner: {
+      type: String,
+      default: null
+    },
+    leaseExpiresAt: {
+      type: Date,
+      default: null
+    },
+    capturingStartedAt: {
+      type: Date,
+      default: null
+    },
+    settledAt: {
+      type: Date,
+      default: null
+    },
+    paypalRequestId: {
+      type: String,
+      default: null
+    },
+    confirmationChallenge: {
+      tokenHash: { type: String, default: null },
+      expiresAt: { type: Date, default: null },
+      consumed: { type: Boolean, default: false },
+      consumedAt: { type: Date, default: null }
+    },
     returnSessionToken: {
       tokenHash: { type: String, default: null, index: true },
       expiresAt: { type: Date, default: null },
@@ -83,7 +118,9 @@ export const PaymentTransactionSchema = new Schema(
 
 PaymentTransactionSchema.index({ paypalOrderId: 1 }, { unique: true });
 PaymentTransactionSchema.index({ idempotencyKey: 1 }, { unique: true });
+PaymentTransactionSchema.index({ userId: 1, idempotencyKey: 1 });
 PaymentTransactionSchema.index({ authorizationId: 1 }, { unique: true });
+PaymentTransactionSchema.index({ status: 1, leaseExpiresAt: 1 });
 PaymentTransactionSchema.index({ 'returnSessionToken.tokenHash': 1 });
 
 export const PaymentTransaction =
