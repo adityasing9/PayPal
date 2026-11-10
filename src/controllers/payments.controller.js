@@ -56,6 +56,8 @@ export async function captureOrderController(req, res, next) {
       orderId: req.body.orderId,
       authorizationId: req.body.authorizationId,
       userId: req.user._id,
+      userConsent: req.body.userConsent,
+      confirmationChallenge: req.body.confirmationChallenge,
       idempotencyKey
     });
 

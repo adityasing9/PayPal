@@ -16,10 +16,15 @@ export const createOrderSchema = z.object({
 
 /**
  * Schema for capturing an approved PayPal order.
+ * Requires explicit buyer post-approval confirmation (SEC-03 Gate 3).
  */
 export const captureOrderSchema = z.object({
   orderId: z.string().min(1, 'PayPal Order ID is required'),
-  authorizationId: z.string().min(1, 'Authorization ID is required')
+  authorizationId: z.string().min(1, 'Authorization ID is required'),
+  userConsent: z.literal(true, {
+    errorMap: () => ({ message: 'userConsent must be explicitly set to true' })
+  }),
+  confirmationChallenge: z.string().optional()
 });
 
 /**

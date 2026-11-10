@@ -9,7 +9,8 @@ import {
   generateCsrfToken,
   verifyCsrfToken,
   generateReturnToken,
-  hashReturnToken
+  hashReturnToken,
+  validateEd25519KeyPair
 } from '../../src/utils/cryptoUtils.js';
 
 describe('Step 2.3: Cryptographic Utilities (cryptoUtils)', () => {
@@ -230,6 +231,24 @@ describe('Step 2.3: Cryptographic Utilities (cryptoUtils)', () => {
     it('throws when hashing empty or non-string return token', () => {
       expect(() => hashReturnToken('')).toThrow(TypeError);
       expect(() => hashReturnToken(null)).toThrow(TypeError);
+    });
+  });
+
+  describe('validateEd25519KeyPair', () => {
+    it('returns true for matching generated Ed25519 keypair hex strings', () => {
+      const pair = generateEd25519KeyPair();
+      expect(validateEd25519KeyPair(pair.privateKeyHex, pair.publicKeyHex)).toBe(true);
+    });
+
+    it('returns false for mismatched Ed25519 keypairs', () => {
+      const pair1 = generateEd25519KeyPair();
+      const pair2 = generateEd25519KeyPair();
+      expect(validateEd25519KeyPair(pair1.privateKeyHex, pair2.publicKeyHex)).toBe(false);
+    });
+
+    it('returns false for invalid key strings without throwing', () => {
+      expect(validateEd25519KeyPair('invalid', 'invalid')).toBe(false);
+      expect(validateEd25519KeyPair(null, undefined)).toBe(false);
     });
   });
 });

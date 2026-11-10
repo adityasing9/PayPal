@@ -13,6 +13,7 @@ import {
   getCurrentUser,
   logoutUser,
 } from "../api/auth";
+import { ensureDemoSession } from "../api/client";
 
 const AuthContext = createContext(null);
 
@@ -39,7 +40,10 @@ export function AuthProvider({ children }) {
 
     async function restoreSession() {
       try {
-        const result = await getCurrentUser();
+        let result = await getCurrentUser().catch(() => null);
+        if (!result) {
+          result = await ensureDemoSession().catch(() => null);
+        }
 
         if (active) {
           setUser(result?.user ?? result ?? null);

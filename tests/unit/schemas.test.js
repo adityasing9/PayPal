@@ -359,13 +359,30 @@ describe('Step 2.2: Zod Validation Schemas', () => {
       expect(() => createOrderSchema.parse(invalidConsent)).toThrow();
     });
 
-    it('captureOrderSchema validates orderId and authorizationId', () => {
+    it('captureOrderSchema validates orderId, authorizationId, and required userConsent', () => {
       const valid = {
         orderId: 'PAYPAL_ORDER_88392104',
-        authorizationId: 'auth_4402a11c'
+        authorizationId: 'auth_4402a11c',
+        userConsent: true
       };
       const result = captureOrderSchema.parse(valid);
       expect(result.orderId).toBe('PAYPAL_ORDER_88392104');
+      expect(result.userConsent).toBe(true);
+    });
+
+    it('captureOrderSchema rejects when userConsent is missing or not true (SEC-03 Gate 3)', () => {
+      const missingConsent = {
+        orderId: 'PAYPAL_ORDER_88392104',
+        authorizationId: 'auth_4402a11c'
+      };
+      expect(() => captureOrderSchema.parse(missingConsent)).toThrow();
+
+      const falseConsent = {
+        orderId: 'PAYPAL_ORDER_88392104',
+        authorizationId: 'auth_4402a11c',
+        userConsent: false
+      };
+      expect(() => captureOrderSchema.parse(falseConsent)).toThrow();
     });
 
     it('recoverSessionSchema validates orderId and returnToken', () => {

@@ -220,12 +220,18 @@ describe('Step 2.6: End-to-End Orchestration & Multi-Member Integration Suite', 
         _id: new mongoose.Types.ObjectId(),
         authorizationId: authData.authorizationId,
         proposalId: proposalDoc._id,
+        intentId: intentDoc._id,
+        intentVersion: 1,
+        snapshotId: snapshotDoc._id,
         userId: testUser._id,
         authorizedAmountMinor: 9900n,
         currency: 'USD',
         status: 'PENDING',
         nonce: authData.nonce,
-        expiresAt: new Date(Date.now() + 300000),
+        issuedAt: new Date(authData.issuedAt),
+        expiresAt: new Date(authData.expiresAt),
+        keyId: env.ED25519_KEY_ID,
+        authMode: authData.authMode || (env.USE_MOCK_SECURITY ? 'MOCK_DETERMINISTIC' : 'LIVE_FIREWALL'),
         signature: authData.signature,
         publicKey: authData.publicKey,
         canonicalJsonHash: authData.canonicalJsonHash,
@@ -293,7 +299,8 @@ describe('Step 2.6: End-to-End Orchestration & Multi-Member Integration Suite', 
         cookies: authCookie,
         body: {
           orderId: mockCreatedTx.paypalOrderId,
-          authorizationId: authRecordDoc.authorizationId
+          authorizationId: authRecordDoc.authorizationId,
+          userConsent: true
         }
       });
       expect(captureRes.status).toBe(200);
@@ -720,7 +727,8 @@ describe('Step 2.6: End-to-End Orchestration & Multi-Member Integration Suite', 
         cookies: authCookie,
         body: {
           orderId: completedTx.paypalOrderId,
-          authorizationId: mockAuthId
+          authorizationId: mockAuthId,
+          userConsent: true
         }
       });
 
@@ -755,7 +763,8 @@ describe('Step 2.6: End-to-End Orchestration & Multi-Member Integration Suite', 
         cookies: authCookie,
         body: {
           orderId: completedTx.paypalOrderId,
-          authorizationId: 'auth_malicious_attacker_id'
+          authorizationId: 'auth_malicious_attacker_id',
+          userConsent: true
         }
       });
 

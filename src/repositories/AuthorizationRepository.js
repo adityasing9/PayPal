@@ -116,6 +116,22 @@ export class AuthorizationRepository {
   }
 
   /**
+   * Finds an authorization record by authorizationId (or MongoDB _id).
+   *
+   * @param {string} authorizationId
+   * @returns {Promise<import('mongoose').Document | null>}
+   */
+  async findByAuthorizationId(authorizationId) {
+    if (!authorizationId) return null;
+    return AuthorizationRecord.findOne({
+      $or: [
+        { _id: authorizationId.match(/^[0-9a-fA-F]{24}$/) ? authorizationId : null },
+        { authorizationId }
+      ]
+    });
+  }
+
+  /**
    * Atomically claims an authorization nonce (PENDING -> IN_FLIGHT).
    *
    * Atomicity condition:
