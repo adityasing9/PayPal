@@ -7,12 +7,14 @@ import json
 import os
 import tempfile
 import time
+from unittest.mock import patch
 from intentlock.core.models import (
     IntentPayload, MerchantInfo, CartItem, CostBreakdown, SubscriptionTerms
 )
 from intentlock.engine import IntentLockEngine
 from intentlock.workstream5_api_db.app import create_app
 from intentlock.workstream5_api_db.team_contracts import MockMember3PaymentOrchestrator
+from intentlock.workstream4_crypto_auth.signer import Ed25519Signer
 
 class TestWorkstream5(unittest.TestCase):
     def setUp(self):
@@ -78,6 +80,80 @@ class TestWorkstream5(unittest.TestCase):
         self.assertEqual(payment_result["status"], "CAPTURED")
         self.assertTrue(payment_result["captured_amount_authorized"])
         self.assertIn("PAYPAL-TX-", payment_result["paypal_transaction_id"])
+
+    def test_v2_authorization_signs_purchase_bindings_and_short_expiry(self):
+        payload = self._sample_valid_intent_dict("0123456789abcdef01234567")
+        payload["buyer_id"] = "abcdef0123456789abcdef01"
+        context = {
+            "user_id": payload["buyer_id"],
+            "intent_id": payload["intent_id"],
+            "intent_version": 1,
+            "proposal_id": "111111111111111111111111",
+            "snapshot_id": "222222222222222222222222",
+            "snapshot_hash": "ab" * 32,
+            "amount_minor": "4320",
+            "currency": "USD",
+            "minor_unit_exponent": 2,
+            "merchant_id": "M1",
+            "paypal_merchant_id": "PPM_TEST_1"
+        }
+        payload["authorization_context"] = context
+
+        with patch.dict(os.environ, {"INTENTLOCK_SERVICE_TOKEN": "test-service-token"}):
+            response = self.client.post(
+                "/api/v2/intent/authorize",
+                json=payload,
+                headers={"X-IntentLock-Service-Token": "test-service-token"}
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        handoff = data["handoff_to_member3"]
+        self.assertEqual(handoff["protocol"], "INTENTLOCK_V2_ED25519")
+        self.assertEqual(handoff["user_id"], context["user_id"])
+        self.assertEqual(handoff["proposal_id"], context["proposal_id"])
+        self.assertEqual(handoff["snapshot_id"], context["snapshot_id"])
+        self.assertEqual(handoff["snapshot_hash"], context["snapshot_hash"])
+        self.assertEqual(handoff["amount_minor"], "4320")
+        self.assertLessEqual(handoff["expires_at"] - handoff["issued_at"], 60)
+
+        valid, claims = Ed25519Signer.verify_compact_token(
+            handoff["authorization_token"],
+            self.engine.public_key_hex,
+            max_lifetime_seconds=60
+        )
+        self.assertTrue(valid)
+        self.assertEqual(claims["purchase_hash"], handoff["purchase_hash"])
+        self.assertEqual(len(claims["purchase_hash"]), 128)
+
+    def test_v2_authorization_rejects_amount_mismatch_and_missing_service_auth(self):
+        payload = self._sample_valid_intent_dict("0123456789abcdef01234567")
+        payload["buyer_id"] = "abcdef0123456789abcdef01"
+        payload["authorization_context"] = {
+            "user_id": payload["buyer_id"],
+            "intent_id": payload["intent_id"],
+            "intent_version": 1,
+            "proposal_id": "111111111111111111111111",
+            "snapshot_id": "222222222222222222222222",
+            "snapshot_hash": "ab" * 32,
+            "amount_minor": "4319",
+            "currency": "USD",
+            "minor_unit_exponent": 2,
+            "merchant_id": "M1",
+            "paypal_merchant_id": "PPM_TEST_1"
+        }
+
+        with patch.dict(os.environ, {"INTENTLOCK_SERVICE_TOKEN": "test-service-token"}):
+            unauthorized = self.client.post("/api/v2/intent/authorize", json=payload)
+            mismatch = self.client.post(
+                "/api/v2/intent/authorize",
+                json=payload,
+                headers={"X-IntentLock-Service-Token": "test-service-token"}
+            )
+
+        self.assertEqual(unauthorized.status_code, 401)
+        self.assertEqual(mismatch.status_code, 400)
+        self.assertIsNone(mismatch.get_json().get("token"))
 
     def test_authorize_endpoint_blocks_malicious_intent(self):
         payload = self._sample_valid_intent_dict("INTENT_ATTACK")

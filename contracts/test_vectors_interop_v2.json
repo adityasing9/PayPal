@@ -1,0 +1,20 @@
+{
+  "contract": "INTENTLOCK_V2_ED25519",
+  "hash_algorithm": "SHA-512",
+  "canonicalization": "RFC 8785 JCS",
+  "purchase_binding": {
+    "user_id": "abcdef0123456789abcdef01",
+    "intent_id": "0123456789abcdef01234567",
+    "intent_version": 1,
+    "proposal_id": "111111111111111111111111",
+    "snapshot_id": "222222222222222222222222",
+    "snapshot_hash": "abababababababababababababababababababababababababababababababab",
+    "amount_minor": "4320",
+    "currency": "USD",
+    "minor_unit_exponent": 2,
+    "merchant_id": "MERCHANT_TEST",
+    "paypal_merchant_id": "PPM_TEST"
+  },
+  "canonical_json_utf8": "{\"amount_minor\":\"4320\",\"currency\":\"USD\",\"intent_id\":\"0123456789abcdef01234567\",\"intent_version\":1,\"merchant_id\":\"MERCHANT_TEST\",\"minor_unit_exponent\":2,\"paypal_merchant_id\":\"PPM_TEST\",\"proposal_id\":\"111111111111111111111111\",\"snapshot_hash\":\"abababababababababababababababababababababababababababababababab\",\"snapshot_id\":\"222222222222222222222222\",\"user_id\":\"abcdef0123456789abcdef01\"}",
+  "purchase_hash_sha512_hex": "566e5ea86f4a530ad50425e6e656312a88a30043b0da1047336bd46e0ebf5a7efd9f3a5786656e08963b24ed6b710bb5004d4fd427badc7415a3ca929a94e702"
+}

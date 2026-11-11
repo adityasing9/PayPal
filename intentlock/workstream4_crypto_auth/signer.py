@@ -14,6 +14,7 @@ from typing import Tuple, Optional, Dict, Any
 from intentlock.core.models import SignedAuthorizationToken
 from intentlock.core.errors import CryptographicSignatureError
 from intentlock.core.config import config, clean_hex_string
+from intentlock.workstream4_crypto_auth.canonicalizer import Canonicalizer
 
 # --- RFC 8032 Curve25519 / Ed25519 Parameters ---
 _q = 2**255 - 19
@@ -182,7 +183,8 @@ class Ed25519Signer:
                                   intent_id: str,
                                   intent_hash: str,
                                   nonce: str,
-                                  validity_seconds: Optional[int] = None) -> SignedAuthorizationToken:
+                                  validity_seconds: Optional[int] = None,
+                                  binding_context: Optional[Dict[str, Any]] = None) -> SignedAuthorizationToken:
         """
         Creates a signed IntentLock authorization token for a verified commerce intent.
         Timestamps are integer Unix epoch seconds for cross-language determinism.
@@ -192,20 +194,48 @@ class Ed25519Signer:
         expires_at = issued_at + effective_validity
         token_id = secrets.token_hex(16)
 
-        # Structure payload to be signed (colon-separated, integer timestamps)
-        claims = f"{token_id}:{intent_id}:{intent_hash}:{nonce}:{issued_at}:{expires_at}"
-        claims_bytes = claims.encode('utf-8')
+        protocol = "INTENTLOCK_V1_ED25519"
+        purchase_hash = ""
+        signed_message: bytes
+        if binding_context is not None:
+            protocol = "INTENTLOCK_V2_ED25519"
+            purchase_hash = Canonicalizer.hash_intent_sha512(
+                Canonicalizer.canonicalize(binding_context)
+            )
+            claims_dict = {
+                "protocol": protocol,
+                "token_id": token_id,
+                "intent_id": intent_id,
+                "intent_hash": intent_hash,
+                **binding_context,
+                "purchase_hash": purchase_hash,
+                "nonce": nonce,
+                "issued_at": issued_at,
+                "expires_at": expires_at
+            }
+            claims_bytes = json.dumps(
+                claims_dict,
+                ensure_ascii=False,
+                separators=(",", ":")
+            ).encode("utf-8")
+            header = b'{"alg":"Ed25519","typ":"INTENTLOCK-AUTH","v":2}'
+            header_segment = _b64url_encode(header)
+            claims_segment = _b64url_encode(claims_bytes)
+            signed_message = f"{header_segment}.{claims_segment}".encode("ascii")
+            compact_token = f"{header_segment}.{claims_segment}.{_b64url_encode(self.sign_message(signed_message))}"
+        else:
+            # V1 remains unchanged for existing callers.
+            claims = f"{token_id}:{intent_id}:{intent_hash}:{nonce}:{issued_at}:{expires_at}"
+            claims_bytes = claims.encode('utf-8')
+            header = b'{"alg":"Ed25519","typ":"INTENTLOCK-AUTH"}'
+            compact_token = (
+                f"{_b64url_encode(header)}."
+                f"{_b64url_encode(claims_bytes)}."
+                f"{_b64url_encode(self.sign_message(claims_bytes))}"
+            )
 
-        sig_bytes = self.sign_message(claims_bytes)
+        sig_bytes = _b64url_decode(compact_token.split(".")[2])
         sig_hex = sig_bytes.hex()
-
-        # Build compact URL-safe token format: header.payload.signature
-        header = b'{"alg":"Ed25519","typ":"INTENTLOCK-AUTH"}'
-        compact_token = (
-            f"{_b64url_encode(header)}."
-            f"{_b64url_encode(claims_bytes)}."
-            f"{_b64url_encode(sig_bytes)}"
-        )
 
         return SignedAuthorizationToken(
             token_id=token_id,
@@ -217,7 +247,10 @@ class Ed25519Signer:
             signature=sig_hex,
             public_key=self.public_key_hex,
             algorithm="Ed25519",
-            compact_token=compact_token
+            compact_token=compact_token,
+            protocol=protocol,
+            binding_context=binding_context or {},
+            purchase_hash=purchase_hash
         )
 
     @staticmethod
@@ -266,9 +299,51 @@ class Ed25519Signer:
             if len(sig_bytes) != 64:
                 return False, None
 
-            # 3. Cryptographic signature verification
+            # V2 binds the protected header as well as the exact JSON claims bytes.
             claims_bytes = _b64url_decode(parts[1])
             pk_bytes = bytes.fromhex(cleaned_pk)
+            if header_dict.get("v") == 2:
+                if (
+                    _b64url_encode(header_bytes) != parts[0] or
+                    _b64url_encode(claims_bytes) != parts[1] or
+                    not _verify_raw(
+                        sig_bytes,
+                        f"{parts[0]}.{parts[1]}".encode("ascii"),
+                        pk_bytes
+                    )
+                ):
+                    return False, None
+
+                claims = json.loads(claims_bytes.decode("utf-8"))
+                if (
+                    not isinstance(claims, dict) or
+                    claims.get("protocol") != "INTENTLOCK_V2_ED25519" or
+                    not isinstance(claims.get("token_id"), str) or
+                    not isinstance(claims.get("intent_id"), str) or
+                    not isinstance(claims.get("intent_hash"), str) or
+                    not isinstance(claims.get("purchase_hash"), str) or
+                    not isinstance(claims.get("nonce"), str) or
+                    len(claims["nonce"]) != 32 or
+                    any(ch not in "0123456789abcdef" for ch in claims["nonce"]) or
+                    not isinstance(claims.get("issued_at"), int) or
+                    not isinstance(claims.get("expires_at"), int)
+                ):
+                    return False, None
+
+                issued_at = claims["issued_at"]
+                expires_at = claims["expires_at"]
+                if (
+                    expires_at <= issued_at or
+                    expires_at - issued_at > max_lifetime_seconds
+                ):
+                    return False, None
+                if enforce_expiry:
+                    leeway = clock_skew_leeway if clock_skew_leeway is not None else config.MAX_CLOCK_SKEW_SECONDS
+                    now = current_time if current_time is not None else time.time()
+                    if now > expires_at + leeway or issued_at > now + leeway:
+                        return False, None
+                return True, claims
+
             if not _verify_raw(sig_bytes, claims_bytes, pk_bytes):
                 return False, None
 

@@ -39,6 +39,21 @@ export async function connectDB() {
 
   try {
     await mongoose.connect(uri, options);
+    await mongoose.connection.collection('authorization_records').createIndex(
+      { 'externalAuthorization.nonce': 1 },
+      {
+        unique: true,
+        partialFilterExpression: { 'externalAuthorization.nonce': { $type: 'string' } }
+      }
+    );
+    await mongoose.connection.collection('authorization_records').createIndex(
+      { idempotencyKey: 1 },
+      {
+        name: 'uniq_authorization_idempotency_key',
+        unique: true,
+        partialFilterExpression: { idempotencyKey: { $type: 'string' } }
+      }
+    );
     isConnected = true;
     return mongoose;
   } catch (error) {

@@ -31,6 +31,14 @@ export const PaymentTransactionSchema = new Schema(
       default: null,
       index: true
     },
+    paypalRefundIds: {
+      type: [String],
+      default: []
+    },
+    lastPayPalEventId: {
+      type: String,
+      default: null
+    },
     idempotencyKey: {
       type: String,
       required: [true, 'Client idempotency key is required'],

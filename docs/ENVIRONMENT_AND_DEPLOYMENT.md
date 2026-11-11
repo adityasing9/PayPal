@@ -25,13 +25,14 @@ All configuration is parsed and validated at boot time via `src/config/env.js`.
 | `CSRF_SECRET` | **Required** | `dev-fallback-csrf-secret...` | 32+ high-entropy random characters | Secret key used to generate HMAC-SHA256 user-bound anti-CSRF tokens. Must be $\ge 32$ chars in production. |
 | `ED25519_KEY_ID` | **Required** | `KEY_INTENTLOCK_DEV_V1` | Key identifier (e.g. `KEY_PROD_2026_V1`) | Key ID stamped in authorization records and signatures. |
 | `ED25519_PUBLIC_KEY`| **Required (Prod)** | Auto-generated dev keypair | 64-character lowercase hex string | 32-byte Ed25519 public key for verifying signed authorizations. |
-| `ED25519_PRIVATE_KEY`| **Required (Prod)** | Auto-generated dev keypair | 128-character lowercase hex string | 64-byte Ed25519 private key (seed + public) used by firewall to sign authorizations. |
+| `ED25519_PRIVATE_KEY`| **Required (Prod)** | Auto-generated dev keypair | 64-character lowercase hex seed or PKCS#8 PEM | Ed25519 private key used by firewall to sign authorizations; must match `ED25519_PUBLIC_KEY`. |
 | `USE_MOCK_SECURITY`| **Dev/Test Only** | `true` (dev default) | **STRICTLY FORBIDDEN (`false`)** | Invariant: If `true` when `NODE_ENV === 'production'`, boot fails closed immediately. |
 | `USE_MOCK_PAYPAL` | **Dev/Test Only** | `true` (dev default) | **STRICTLY FORBIDDEN (`false`)** | Invariant: If `true` when `NODE_ENV === 'production'`, boot fails closed immediately. |
-| `PAYPAL_ENVIRONMENT`| **Required** | `sandbox` | `sandbox` (for hackathon demo) or `live` | Target PayPal API gateway. |
-| `PAYPAL_CLIENT_ID`| **Required (Live PP)** | `""` | PayPal REST App Client ID | Client ID for OAuth2 token acquisition. |
-| `PAYPAL_CLIENT_SECRET`| **Required (Live PP)**| `""` | PayPal REST App Secret | Client secret for OAuth2 token acquisition. |
-| `PAYPAL_WEBHOOK_ID`| **Required (Live PP)**| `""` | Registered PayPal Webhook ID | Webhook identifier used in CRC32 transmission verification. |
+| `PAYPAL_ENVIRONMENT`| **Required** | `sandbox` | `sandbox` only | This integration rejects non-Sandbox API configuration; live payments are not supported. |
+| `PAYPAL_API_TIMEOUT_MS` | **Optional** | `10000` | Positive integer milliseconds | Bounds each PayPal OAuth/order request; retry only with the same `Idempotency-Key`. |
+| `PAYPAL_CLIENT_ID`| **Required for actual Sandbox calls** | `""` | Sandbox PayPal REST App Client ID | Used only for Sandbox OAuth2 token acquisition. |
+| `PAYPAL_CLIENT_SECRET`| **Required for actual Sandbox calls**| `""` | Sandbox PayPal REST App Secret | Used only for Sandbox OAuth2 token acquisition. |
+| `PAYPAL_WEBHOOK_ID`| **Required for production webhook verification**| `""` | Registered PayPal Webhook ID | Passed to PayPal's `verify-webhook-signature` API; the current backend verification endpoint is Sandbox. |
 | `AI_PROVIDER` | **Optional** | `offline_fixture` | `offline_fixture`, `gemini`, `openai`, or `anthropic` | AI search provider. |
 | `AI_API_KEY` | **Optional** | `""` | Provider API key | Required only if `AI_PROVIDER` is an external LLM. |
 | `AI_MODEL` | **Optional** | `gemini-1.5-pro` | Target LLM model name | Model identifier passed to AI SDK. |
@@ -206,6 +207,17 @@ server {
      - `CHECKOUT.ORDER.APPROVED`
    - Copy generated `Webhook ID` $\to$ `PAYPAL_WEBHOOK_ID`.
 5. Under **Sandbox Accounts**, note the test personal buyer and business merchant login credentials.
+6. Configure `PAYPAL_ENVIRONMENT=sandbox`, the Sandbox app credentials, and
+   `USE_MOCK_PAYPAL=false`. Do not use Live app credentials. The order endpoint
+   is hardwired to PayPal's Sandbox API and rejects a non-Sandbox environment.
+7. Test a valid authorization and verify the returned order details and payee
+   in the Sandbox app. Also test invalid authorization, amount/currency/payee
+   mismatch, timeout, and repeated requests with the exact same
+   `Idempotency-Key`. Do not enable capture during this validation.
+8. Before deploying the single-authorization-per-idempotency-key index to an
+   existing database, reconcile any existing duplicate non-empty
+   `authorization_records.idempotencyKey` values. Startup intentionally fails
+   if MongoDB cannot create the unique index.
 
 ---
 

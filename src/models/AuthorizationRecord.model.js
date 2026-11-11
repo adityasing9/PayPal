@@ -1,6 +1,21 @@
 import mongoose from 'mongoose';
 
 const { Schema } = mongoose;
+const ExternalAuthorizationSchema = new Schema(
+  {
+    protocol: { type: String, enum: ['INTENTLOCK_V2_ED25519'], required: true },
+    tokenId: { type: String, required: true },
+    intentHash: { type: String, required: true },
+    purchaseHash: { type: String, required: true },
+    merchantId: { type: String, required: true },
+    nonce: { type: String, required: true },
+    issuedAt: { type: Number, required: true },
+    expiresAt: { type: Number, required: true },
+    compactToken: { type: String, required: true },
+    publicKey: { type: String, required: true }
+  },
+  { _id: false, strict: true }
+);
 
 /**
  * AuthorizationRecord Schema.
@@ -14,6 +29,12 @@ const { Schema } = mongoose;
  */
 export const AuthorizationRecordSchema = new Schema(
   {
+    authorizationId: {
+      type: String,
+      required: [true, 'Authorization ID is required'],
+      unique: true,
+      index: true
+    },
     proposalId: {
       type: Schema.Types.ObjectId,
       ref: 'ProductProposal',
@@ -35,9 +56,17 @@ export const AuthorizationRecordSchema = new Schema(
       required: [true, 'User ID is required'],
       index: true
     },
+    snapshotId: {
+      type: String,
+      required: [true, 'Snapshot ID is required']
+    },
     snapshotHash: {
       type: String,
       required: [true, 'Snapshot hash is required']
+    },
+    paypalMerchantId: {
+      type: String,
+      required: [true, 'PayPal merchant ID is required']
     },
     algorithm: {
       type: String,
@@ -82,6 +111,10 @@ export const AuthorizationRecordSchema = new Schema(
       type: String,
       required: [true, 'Ed25519 signature is required']
     },
+    externalAuthorization: {
+      type: ExternalAuthorizationSchema,
+      default: undefined
+    },
     authMode: {
       type: String,
       enum: ['LIVE_FIREWALL', 'MOCK_DETERMINISTIC'],
@@ -104,12 +137,15 @@ export const AuthorizationRecordSchema = new Schema(
     },
     idempotencyKey: {
       type: String,
-      default: null,
-      index: true
+      default: null
     },
     inFlightStartedAt: {
       type: Date,
       default: null
+    },
+    issuedAt: {
+      type: Date,
+      required: [true, 'Authorization issue timestamp is required']
     },
     expiresAt: {
       type: Date,
@@ -133,10 +169,25 @@ export const AuthorizationRecordSchema = new Schema(
 );
 
 // Indexes: Note that expiresAt is a standard B-tree index, NOT a TTL index.
+AuthorizationRecordSchema.index({ authorizationId: 1 }, { unique: true });
 AuthorizationRecordSchema.index({ nonce: 1 }, { unique: true });
-AuthorizationRecordSchema.index({ idempotencyKey: 1 });
+AuthorizationRecordSchema.index(
+  { idempotencyKey: 1 },
+  {
+    name: 'uniq_authorization_idempotency_key',
+    unique: true,
+    partialFilterExpression: { idempotencyKey: { $type: 'string' } }
+  }
+);
 AuthorizationRecordSchema.index({ status: 1 });
 AuthorizationRecordSchema.index({ expiresAt: 1 });
+AuthorizationRecordSchema.index(
+  { 'externalAuthorization.nonce': 1 },
+  {
+    unique: true,
+    partialFilterExpression: { 'externalAuthorization.nonce': { $type: 'string' } }
+  }
+);
 
 export const AuthorizationRecord =
   mongoose.models.AuthorizationRecord ||

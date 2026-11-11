@@ -133,9 +133,13 @@ class CostBreakdown:
     total_charged: float = 0.0
     currency: str = "USD"
     itemized_fees: Dict[str, float] = field(default_factory=dict)
+    discount: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        result = asdict(self)
+        if self.discount == 0:
+            result.pop("discount")
+        return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CostBreakdown":
@@ -160,10 +164,13 @@ class CostBreakdown:
         service_fee = _parse_finite_float(data.get("service_fee", 0.0), "service_fee")
         regulatory_fee = _parse_finite_float(data.get("regulatory_fee", 0.0), "regulatory_fee")
         tip = _parse_finite_float(data.get("tip", 0.0), "tip")
+        discount = _parse_finite_float(data.get("discount", 0.0), "discount")
 
-        for f_name, f_val in [("tax", tax), ("shipping", shipping), ("service_fee", service_fee), ("regulatory_fee", regulatory_fee), ("tip", tip)]:
+        for f_name, f_val in [("tax", tax), ("shipping", shipping), ("service_fee", service_fee), ("regulatory_fee", regulatory_fee), ("tip", tip), ("discount", discount)]:
             if f_val < 0:
                 raise SchemaValidationError(f"Negative cost component '{f_name}' is not permitted: {f_val}")
+        if discount > subtotal:
+            raise SchemaValidationError("Discount cannot exceed subtotal")
 
         currency = str(data.get("currency", "USD")).strip().upper()
         if not currency or len(currency) != 3 or not currency.isalpha():
@@ -184,6 +191,7 @@ class CostBreakdown:
             service_fee=service_fee,
             regulatory_fee=regulatory_fee,
             tip=tip,
+            discount=discount,
             total_charged=total_charged,
             currency=currency,
             itemized_fees=itemized_fees
@@ -337,6 +345,9 @@ class SignedAuthorizationToken:
     public_key: str
     algorithm: str = "Ed25519"
     compact_token: str = ""
+    protocol: str = "INTENTLOCK_V1_ED25519"
+    binding_context: Dict[str, Any] = field(default_factory=dict)
+    purchase_hash: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

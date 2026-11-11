@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import mongoose from 'mongoose';
 import { app } from '../../src/app.js';
 import { PaymentIntent } from '../../src/models/PaymentIntent.model.js';
@@ -9,8 +9,9 @@ import { User } from '../../src/models/User.model.js';
 import { UserPreference } from '../../src/models/UserPreference.model.js';
 import { authorizationRepository } from '../../src/repositories/AuthorizationRepository.js';
 import { authService } from '../../src/services/AuthService.js';
+import { securityFirewallService } from '../../src/services/SecurityFirewallService.js';
 import { env } from '../../src/config/env.js';
-import { verifySignature } from '../../src/utils/cryptoUtils.js';
+import { generateEd25519KeyPair, verifySignature } from '../../src/utils/cryptoUtils.js';
 import { computeSnapshotCanonicalHash } from '../../src/utils/canonicalJson.js';
 import { dispatchRequest } from '../helpers/testClient.js';
 
@@ -711,5 +712,333 @@ describe('Step 2.5.5: Proposal Formulation & Security Firewall Integration', () 
         })
       );
     });
+  });
+});
+describe('Production snapshot fail-closed security', () => {
+  let originalNodeEnv;
+  const ids = {
+    intent: new mongoose.Types.ObjectId(),
+    proposal: new mongoose.Types.ObjectId(),
+    snapshot: new mongoose.Types.ObjectId(),
+    user: new mongoose.Types.ObjectId()
+  };
+
+  function makeProductionRecords() {
+    const snapshotPayload = {
+      productId: 'placeholder-product-id',
+      variantSku: 'K2P-WHT-TAC-BROWN',
+      merchantId: 'MERCHANT_KEYCHRON',
+      paypalMerchantId: 'PPM_KEYCHRON_998',
+      lineItems: [
+        {
+          sku: 'K2P-WHT-TAC-BROWN',
+          name: 'Keychron K2 Pro Keyboard',
+          quantity: 1,
+          unitPriceMinor: 9900n
+        }
+      ],
+      pricing: {
+        basePriceMinor: 9900n,
+        shippingMinor: 1000n,
+        taxMinor: 890n,
+        discountMinor: 0n,
+        totalPriceMinor: 11790n,
+        currency: 'USD',
+        minorUnitExponent: 2
+      },
+      recurring: {
+        isRecurring: false,
+        billingInterval: null,
+        billingCycles: 0
+      },
+      specifications: {},
+      rawDescription: 'Keyboard'
+    };
+    const proposal = {
+      _id: ids.proposal,
+      intentId: ids.intent,
+      variantSku: snapshotPayload.variantSku,
+      merchantId: snapshotPayload.merchantId,
+      paypalMerchantId: snapshotPayload.paypalMerchantId,
+      lineItems: snapshotPayload.lineItems.map((item) => ({ ...item })),
+      pricing: { ...snapshotPayload.pricing },
+      recurring: { ...snapshotPayload.recurring }
+    };
+    const snapshot = {
+      _id: ids.snapshot,
+      intentId: ids.intent,
+      proposalId: ids.proposal,
+      snapshotHash: computeSnapshotCanonicalHash(snapshotPayload),
+      snapshotPayload
+    };
+    const intent = {
+      _id: ids.intent,
+      userId: ids.user,
+      version: 1,
+      maxBudgetMinor: 12000n,
+      currency: 'USD',
+      minorUnitExponent: 2,
+      constraints: { requiredSpecs: {} }
+    };
+    return { intent, proposal, snapshot, snapshotPayload };
+  }
+
+  function setupProductionRecords(records = makeProductionRecords()) {
+    vi.spyOn(CheckoutSnapshot.db, 'readyState', 'get').mockReturnValue(1);
+    vi.spyOn(PaymentIntent, 'findOne').mockResolvedValue(records.intent);
+    vi.spyOn(ProductProposal, 'findOne').mockResolvedValue(records.proposal);
+    vi.spyOn(CheckoutSnapshot, 'findOne').mockResolvedValue(records.snapshot);
+    vi.spyOn(RiskAssessment, 'create').mockResolvedValue({});
+    const createAuthorizationSpy = vi
+      .spyOn(authorizationRepository, 'createAuthorization')
+      .mockResolvedValue({});
+    return { ...records, createAuthorizationSpy };
+  }
+
+  function makeProductionRequest(records, snapshot = records.snapshotPayload) {
+    return {
+      intent: {
+        id: ids.intent.toString(),
+        version: 1,
+        maxBudgetMinor: '12000',
+        currency: 'USD',
+        minorUnitExponent: 2,
+        requiredSpecs: {}
+      },
+      snapshot: {
+        ...snapshot,
+        intentId: ids.intent.toString(),
+        snapshotId: ids.snapshot.toString(),
+        proposalId: ids.proposal.toString(),
+        snapshotHash: records.snapshot.snapshotHash
+      },
+      userId: ids.user.toString(),
+      now: new Date('2026-11-08T12:00:00.000Z')
+    };
+  }
+
+  beforeEach(() => {
+    originalNodeEnv = env.NODE_ENV;
+    env.NODE_ENV = 'production';
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    env.NODE_ENV = originalNodeEnv;
+    vi.restoreAllMocks();
+  });
+
+  it('blocks authorization when MongoDB is disconnected', async () => {
+    vi.spyOn(CheckoutSnapshot.db, 'readyState', 'get').mockReturnValue(0);
+    vi.spyOn(RiskAssessment, 'create').mockResolvedValue({});
+
+    const intentId = new mongoose.Types.ObjectId();
+
+    const result = await securityFirewallService.evaluateProposal({
+      intent: {
+        id: intentId.toString(),
+        maxBudgetMinor: '12000',
+        requiredSpecs: {}
+      },
+      snapshot: {
+        intentId: intentId.toString(),
+        proposalId: new mongoose.Types.ObjectId().toString(),
+        pricing: {
+          totalPriceMinor: '9900',
+          currency: 'USD',
+          minorUnitExponent: 2
+        },
+        specifications: {},
+        recurring: { isRecurring: false }
+      },
+      userId: new mongoose.Types.ObjectId().toString()
+    });
+
+    expect(result.decision).toBe('BLOCK');
+    expect(result.errorCode).toBe('AUTHORITATIVE_RECORDS_UNAVAILABLE');
+    expect(result.authorization).toBeNull();
+  });
+
+  it('requires a valid incoming snapshot intent ID and rejects mismatches before database lookup', async () => {
+    const records = setupProductionRecords();
+    const request = makeProductionRequest(records);
+    request.snapshot.intentId = new mongoose.Types.ObjectId().toString();
+
+    const result = await securityFirewallService.evaluateProposal(request);
+
+    expect(result.decision).toBe('BLOCK');
+    expect(result.authorization).toBeNull();
+    expect(PaymentIntent.findOne).not.toHaveBeenCalled();
+    expect(records.createAuthorizationSpy).not.toHaveBeenCalled();
+  });
+
+  it('blocks a missing snapshot intent ID without creating authorization', async () => {
+    const records = setupProductionRecords();
+    const request = makeProductionRequest(records);
+    delete request.snapshot.intentId;
+
+    const result = await securityFirewallService.evaluateProposal(request);
+
+    expect(result.decision).toBe('BLOCK');
+    expect(result.authorization).toBeNull();
+    expect(records.createAuthorizationSpy).not.toHaveBeenCalled();
+  });
+
+  it('blocks an invalid snapshot hash without creating authorization', async () => {
+    const records = setupProductionRecords();
+    const request = makeProductionRequest(records);
+    request.snapshot.snapshotHash = 'invalid-hash';
+
+    const result = await securityFirewallService.evaluateProposal(request);
+
+    expect(result.decision).toBe('BLOCK');
+    expect(result.authorization).toBeNull();
+    expect(PaymentIntent.findOne).not.toHaveBeenCalled();
+    expect(records.createAuthorizationSpy).not.toHaveBeenCalled();
+  });
+
+  it('uses the authoritative proposal and snapshot only when their bindings match', async () => {
+    const records = setupProductionRecords();
+    const request = makeProductionRequest(records);
+    const keyPair = generateEd25519KeyPair();
+    vi.spyOn(securityFirewallService, 'getKeyPair').mockReturnValue({
+      privateKeyHex: keyPair.privateKeyHex,
+      publicKeyHex: keyPair.publicKeyHex
+    });
+
+    const result = await securityFirewallService.evaluateProposal(request);
+
+    expect(result.decision).toBe('PASS');
+    expect(records.createAuthorizationSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        intentId: ids.intent.toString(),
+        proposalId: ids.proposal.toString(),
+        snapshotId: ids.snapshot.toString(),
+        authorizedAmountMinor: 11790n,
+        minorUnitExponent: 2
+      })
+    );
+  });
+
+  it.each([
+    ['proposal intent', (records) => { records.proposal.intentId = new mongoose.Types.ObjectId(); }],
+    ['snapshot proposal', (records) => { records.snapshot.proposalId = new mongoose.Types.ObjectId(); }]
+  ])('blocks a mismatched %s binding without authorization', async (_name, mutate) => {
+    const records = makeProductionRecords();
+    mutate(records);
+    const setup = setupProductionRecords(records);
+
+    const result = await securityFirewallService.evaluateProposal(makeProductionRequest(setup));
+
+    expect(result.decision).toBe('BLOCK');
+    expect(result.authorization).toBeNull();
+    expect(setup.createAuthorizationSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['variant SKU', (proposal) => { proposal.variantSku = 'WRONG-SKU'; }],
+    ['merchant', (proposal) => { proposal.merchantId = 'MERCHANT_DELL'; }],
+    ['PayPal merchant', (proposal) => { proposal.paypalMerchantId = 'PPM_DELL_223'; }],
+    ['line item', (proposal) => { proposal.lineItems[0].quantity = 2; }],
+    ['pricing', (proposal) => { proposal.pricing.totalPriceMinor = 11791n; }],
+    ['recurring terms', (proposal) => { proposal.recurring.isRecurring = true; }]
+  ])('blocks a proposal %s mismatch against its snapshot', async (_name, mutate) => {
+    const records = makeProductionRecords();
+    mutate(records.proposal);
+    const setup = setupProductionRecords(records);
+
+    const result = await securityFirewallService.evaluateProposal(makeProductionRequest(setup));
+
+    expect(result.decision).toBe('BLOCK');
+    expect(result.authorization).toBeNull();
+    expect(setup.createAuthorizationSpy).not.toHaveBeenCalled();
+  });
+
+  it('blocks a stored snapshot whose payload no longer matches its persisted hash', async () => {
+    const records = makeProductionRecords();
+    records.snapshot.snapshotPayload.pricing.totalPriceMinor = 11000n;
+    const setup = setupProductionRecords(records);
+
+    const result = await securityFirewallService.evaluateProposal(makeProductionRequest(setup));
+
+    expect(result.decision).toBe('BLOCK');
+    expect(result.authorization).toBeNull();
+    expect(setup.createAuthorizationSpy).not.toHaveBeenCalled();
+  });
+
+  it('blocks a modified client snapshot even when it presents the authoritative hash', async () => {
+    const records = setupProductionRecords();
+    const clientSnapshot = {
+      ...records.snapshotPayload,
+      pricing: { ...records.snapshotPayload.pricing, totalPriceMinor: 1000n }
+    };
+
+    const result = await securityFirewallService.evaluateProposal(
+      makeProductionRequest(records, clientSnapshot)
+    );
+
+    expect(result.decision).toBe('BLOCK');
+    expect(result.authorization).toBeNull();
+    expect(records.createAuthorizationSpy).not.toHaveBeenCalled();
+  });
+
+  it('blocks a failed authoritative lookup and does not create authorization', async () => {
+    const records = setupProductionRecords();
+    vi.spyOn(PaymentIntent, 'findOne').mockRejectedValue(new Error('database lookup failed'));
+
+    const result = await securityFirewallService.evaluateProposal(makeProductionRequest(records));
+
+    expect(result.decision).toBe('BLOCK');
+    expect(result.errorCode).toBe('AUTHORITATIVE_RECORD_LOOKUP_FAILED');
+    expect(result.authorization).toBeNull();
+    expect(records.createAuthorizationSpy).not.toHaveBeenCalled();
+  });
+
+  it('blocks when the authenticated user does not own the intent', async () => {
+    const records = setupProductionRecords();
+    records.intent.userId = new mongoose.Types.ObjectId();
+    vi.spyOn(PaymentIntent, 'findOne').mockResolvedValue(records.intent);
+
+    const result = await securityFirewallService.evaluateProposal(makeProductionRequest(records));
+
+    expect(result.decision).toBe('BLOCK');
+    expect(result.authorization).toBeNull();
+    expect(records.createAuthorizationSpy).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when authorization persistence fails', async () => {
+    const records = setupProductionRecords();
+    const keyPair = generateEd25519KeyPair();
+    vi.spyOn(securityFirewallService, 'getKeyPair').mockReturnValue({
+      privateKeyHex: keyPair.privateKeyHex,
+      publicKeyHex: keyPair.publicKeyHex
+    });
+    records.createAuthorizationSpy.mockRejectedValue(new Error('write failed'));
+
+    await expect(
+      securityFirewallService.evaluateProposal(makeProductionRequest(records))
+    ).rejects.toThrow('write failed');
+    expect(records.createAuthorizationSpy).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a configured Ed25519 public key that does not match the private key', () => {
+    const originalPrivateKey = env.ED25519_PRIVATE_KEY;
+    const originalPublicKey = env.ED25519_PUBLIC_KEY;
+    const originalKeyPair = securityFirewallService._keyPair;
+    const signingKey = generateEd25519KeyPair();
+    const unrelatedKey = generateEd25519KeyPair();
+    env.ED25519_PRIVATE_KEY = signingKey.privateKeyHex;
+    env.ED25519_PUBLIC_KEY = unrelatedKey.publicKeyHex;
+    securityFirewallService._keyPair = null;
+
+    try {
+      expect(() => securityFirewallService.getKeyPair()).toThrow(
+        'ED25519_PRIVATE_KEY does not match ED25519_PUBLIC_KEY'
+      );
+    } finally {
+      env.ED25519_PRIVATE_KEY = originalPrivateKey;
+      env.ED25519_PUBLIC_KEY = originalPublicKey;
+      securityFirewallService._keyPair = originalKeyPair;
+    }
   });
 });

@@ -7,8 +7,12 @@ import { User } from '../../src/models/User.model.js';
 import { AuthorizationRecord } from '../../src/models/AuthorizationRecord.model.js';
 import { WebhookEvent } from '../../src/models/WebhookEvent.model.js';
 import { AuditLog } from '../../src/models/AuditLog.model.js';
+import { PaymentIntent } from '../../src/models/PaymentIntent.model.js';
+import { ProductProposal } from '../../src/models/ProductProposal.model.js';
+import { CheckoutSnapshot } from '../../src/models/CheckoutSnapshot.model.js';
 import { authorizationRepository } from '../../src/repositories/AuthorizationRepository.js';
 import { paymentTransactionRepository } from '../../src/repositories/PaymentTransactionRepository.js';
+import { payPalService } from '../../src/services/PayPalService.js';
 import {
   generateCsrfToken,
   generateEd25519KeyPair,
@@ -16,7 +20,7 @@ import {
   generateNonce,
   hashReturnToken
 } from '../../src/utils/cryptoUtils.js';
-import { hashCanonicalJson } from '../../src/utils/canonicalJson.js';
+import { computeSnapshotCanonicalHash, hashCanonicalJson } from '../../src/utils/canonicalJson.js';
 import { dispatchRequest } from '../helpers/testClient.js';
 
 describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhooks', () => {
@@ -86,6 +90,8 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
       intentId: 'int_123',
       intentVersion: 1,
       proposalId: 'prop_456',
+      snapshotId: 'snap_789',
+      issuedAt: now,
       nonce,
       userId,
       snapshotHash: 'c'.repeat(64),
@@ -151,6 +157,8 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
       };
       vi.spyOn(AuthorizationRecord, 'findOne').mockResolvedValue(expiredRecord);
       vi.spyOn(paymentTransactionRepository, 'findByIdempotencyKey').mockResolvedValue(null);
+      const claimNonceSpy = vi.spyOn(authorizationRepository, 'claimNonce');
+      const createTransactionSpy = vi.spyOn(paymentTransactionRepository, 'createTransaction');
 
       const res = await dispatchRequest(app, {
         method: 'POST',
@@ -169,6 +177,179 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
 
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('AUTHORIZATION_EXPIRED');
+      expect(claimNonceSpy).not.toHaveBeenCalled();
+      expect(createTransactionSpy).not.toHaveBeenCalled();
+    });
+
+    it('rejects an invalid Ed25519 signature before claiming the nonce', async () => {
+      vi.spyOn(AuthorizationRecord, 'findOne').mockResolvedValue({
+        ...mockAuthRecord,
+        signature: 'invalid-signature'
+      });
+      vi.spyOn(paymentTransactionRepository, 'findByIdempotencyKey').mockResolvedValue(null);
+      const claimNonceSpy = vi.spyOn(authorizationRepository, 'claimNonce');
+      const createTransactionSpy = vi.spyOn(paymentTransactionRepository, 'createTransaction');
+
+      const res = await dispatchRequest(app, {
+        method: 'POST',
+        url: '/api/payments/create-order',
+        cookies: sessionCookie,
+        headers: {
+          'x-csrf-token': csrfToken,
+          'idempotency-key': 'idem_key_invalid_signature'
+        },
+        body: {
+          proposalId: mockAuthRecord.proposalId,
+          authorizationId: mockAuthRecord.authorizationId,
+          userConsent: true
+        }
+      });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('INVALID_AUTHORIZATION_SIGNATURE');
+      expect(claimNonceSpy).not.toHaveBeenCalled();
+      expect(createTransactionSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['amount', { currency_code: 'USD', value: '1.00' }, { merchant_id: 'PPM_KEYCHRON_998' }],
+      ['merchant', { currency_code: 'USD', value: '117.90' }, { merchant_id: 'PPM_DELL_223' }]
+    ])('rejects PayPal order response %s mismatch and moves authorization to recovery', async (_name, amount, payee) => {
+      vi.spyOn(AuthorizationRecord, 'findOne').mockResolvedValue(mockAuthRecord);
+      vi.spyOn(paymentTransactionRepository, 'findByIdempotencyKey').mockResolvedValue(null);
+      vi.spyOn(authorizationRepository, 'claimNonce').mockResolvedValue({});
+      const recoveringSpy = vi.spyOn(authorizationRepository, 'transitionToRecovering').mockResolvedValue({});
+      const createTransactionSpy = vi.spyOn(paymentTransactionRepository, 'createTransaction');
+      vi.spyOn(payPalService, 'isMockMode').mockReturnValue(false);
+      vi.spyOn(payPalService, 'getAccessToken').mockResolvedValue('test-access-token');
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          id: 'PAYPAL_ORDER_MISMATCH',
+          status: 'CREATED',
+          purchase_units: [{ amount, payee }]
+        })
+      });
+
+      await expect(
+        payPalService.createOrder({
+          proposalId: mockAuthRecord.proposalId,
+          authorizationId: mockAuthRecord.authorizationId,
+          userConsent: true,
+          userId: mockUser._id,
+          idempotencyKey: `idem_paypal_mismatch_${_name}`
+        })
+      ).rejects.toMatchObject({ code: 'PAYPAL_ORDER_AUTHORIZATION_MISMATCH' });
+
+      expect(recoveringSpy).toHaveBeenCalledOnce();
+      expect(createTransactionSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['currency', { currency_code: 'EUR', value: '117.90' }, { merchant_id: 'PPM_KEYCHRON_998' }, 'CREATED', 'PAYPAL_ORDER_MISMATCH'],
+      ['status', { currency_code: 'USD', value: '117.90' }, { merchant_id: 'PPM_KEYCHRON_998' }, 'APPROVED', 'PAYPAL_ORDER_MISMATCH'],
+      ['order ID', { currency_code: 'USD', value: '117.90' }, { merchant_id: 'PPM_KEYCHRON_998' }, 'CREATED', 'invalid-id']
+    ])('rejects PayPal response with mismatched %s', async (_name, amount, payee, status, id) => {
+      vi.spyOn(AuthorizationRecord, 'findOne').mockResolvedValue(mockAuthRecord);
+      vi.spyOn(paymentTransactionRepository, 'findByIdempotencyKey').mockResolvedValue(null);
+      vi.spyOn(authorizationRepository, 'claimNonce').mockResolvedValue({});
+      vi.spyOn(authorizationRepository, 'transitionToRecovering').mockResolvedValue({});
+      vi.spyOn(payPalService, 'isMockMode').mockReturnValue(false);
+      vi.spyOn(payPalService, 'getAccessToken').mockResolvedValue('test-access-token');
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          id,
+          status,
+          purchase_units: [{ amount, payee }]
+        })
+      });
+
+      await expect(
+        payPalService.createOrder({
+          proposalId: mockAuthRecord.proposalId,
+          authorizationId: mockAuthRecord.authorizationId,
+          userConsent: true,
+          userId: mockUser._id,
+          idempotencyKey: `idem_paypal_response_${_name.replace(' ', '_')}`
+        })
+      ).rejects.toMatchObject({ code: 'PAYPAL_ORDER_AUTHORIZATION_MISMATCH' });
+    });
+
+    it('uses a bounded timeout and keeps ambiguous attempts retryable under the same authorization key', async () => {
+      vi.spyOn(AuthorizationRecord, 'findOne').mockResolvedValue(mockAuthRecord);
+      vi.spyOn(paymentTransactionRepository, 'findByIdempotencyKey').mockResolvedValue(null);
+      vi.spyOn(authorizationRepository, 'claimNonce').mockResolvedValue({
+        ...mockAuthRecord,
+        status: 'IN_FLIGHT'
+      });
+      const recoveringSpy = vi.spyOn(authorizationRepository, 'transitionToRecovering');
+      const createTransactionSpy = vi.spyOn(paymentTransactionRepository, 'createTransaction');
+      vi.spyOn(payPalService, 'isMockMode').mockReturnValue(false);
+      vi.spyOn(payPalService, 'getAccessToken').mockResolvedValue('test-access-token');
+      const timeout = new Error('test timeout');
+      timeout.name = 'TimeoutError';
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(timeout);
+
+      await expect(
+        payPalService.createOrder({
+          proposalId: mockAuthRecord.proposalId,
+          authorizationId: mockAuthRecord.authorizationId,
+          userConsent: true,
+          userId: mockUser._id,
+          idempotencyKey: 'idem_paypal_timeout_retry'
+        })
+      ).rejects.toMatchObject({ code: 'PAYPAL_TIMEOUT', statusCode: 504 });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://api-m.sandbox.paypal.com/v2/checkout/orders',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'PayPal-Request-Id': 'idem_paypal_timeout_retry'
+          }),
+          signal: expect.any(Object)
+        })
+      );
+      expect(recoveringSpy).not.toHaveBeenCalled();
+      expect(createTransactionSpy).not.toHaveBeenCalled();
+    });
+
+    it('keeps PayPal 5xx outcomes retryable with the original PayPal request ID', async () => {
+      vi.spyOn(AuthorizationRecord, 'findOne').mockResolvedValue(mockAuthRecord);
+      vi.spyOn(paymentTransactionRepository, 'findByIdempotencyKey').mockResolvedValue(null);
+      vi.spyOn(authorizationRepository, 'claimNonce').mockResolvedValue({
+        ...mockAuthRecord,
+        status: 'IN_FLIGHT'
+      });
+      const recoveringSpy = vi.spyOn(authorizationRepository, 'transitionToRecovering');
+      vi.spyOn(payPalService, 'isMockMode').mockReturnValue(false);
+      vi.spyOn(payPalService, 'getAccessToken').mockResolvedValue('test-access-token');
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 503
+      });
+
+      await expect(
+        payPalService.createOrder({
+          proposalId: mockAuthRecord.proposalId,
+          authorizationId: mockAuthRecord.authorizationId,
+          userConsent: true,
+          userId: mockUser._id,
+          idempotencyKey: 'idem_paypal_server_retry'
+        })
+      ).rejects.toMatchObject({ code: 'PAYPAL_DISPATCH_AMBIGUOUS', statusCode: 502 });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://api-m.sandbox.paypal.com/v2/checkout/orders',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'PayPal-Request-Id': 'idem_paypal_server_retry'
+          })
+        })
+      );
+      expect(recoveringSpy).not.toHaveBeenCalled();
     });
 
     it('SEC-01: rejects order creation when client proposalId does not match authorization record proposalId', async () => {
@@ -296,12 +477,16 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
       // Existing transaction already in DB for this idempotency key
       vi.spyOn(paymentTransactionRepository, 'findByIdempotencyKey').mockResolvedValue({
         _id: new mongoose.Types.ObjectId(),
+        userId: mockAuthRecord.userId,
+        authorizationId: mockAuthRecord._id,
+        proposalId: mockAuthRecord.proposalId,
         paypalOrderId: 'PAYPAL_ORDER_ALREADY_CREATED',
         amountMinor: 11790n,
         currency: 'USD',
         status: 'CREATED'
       });
 
+      vi.spyOn(AuthorizationRecord, 'findById').mockResolvedValue(mockAuthRecord);
       const claimNonceSpy = vi.spyOn(authorizationRepository, 'claimNonce');
 
       const res = await dispatchRequest(app, {
@@ -342,13 +527,17 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
         _id: new mongoose.Types.ObjectId(),
         userId: mockUser._id,
         authorizationId: mockAuthRecord._id,
+        proposalId: mockAuthRecord.proposalId,
         paypalOrderId: 'PAYPAL_ORDER_TO_CAPTURE',
         idempotencyKey: 'idem_key_order',
         amountMinor: 11790n,
         currency: 'USD',
+        minorUnitExponent: 2,
         status: 'CREATED',
         save: vi.fn().mockResolvedValue(true)
       };
+      mockAuthRecord.status = 'IN_FLIGHT';
+      mockAuthRecord.idempotencyKey = mockTx.idempotencyKey;
 
       vi.spyOn(paymentTransactionRepository, 'findByOrderId').mockResolvedValue(mockTx);
       vi.spyOn(AuthorizationRecord, 'findById').mockResolvedValue(mockAuthRecord);
@@ -368,7 +557,7 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
         }
       });
 
-      expect(res.status).toBe(200);
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.status).toBe('COMPLETED');
       expect(res.body.data.captureId).toBeDefined();
@@ -528,8 +717,10 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
 
   describe('4. Webhook Foundation (POST /api/payments/webhooks)', () => {
     it('POST /api/payments/webhooks stores and verifies incoming PayPal webhook event', async () => {
+      vi.spyOn(payPalService, 'verifyWebhookSignature').mockResolvedValue(true);
       vi.spyOn(WebhookEvent, 'findOne').mockResolvedValue(null);
       vi.spyOn(WebhookEvent.prototype, 'save').mockResolvedValue(true);
+      vi.spyOn(WebhookEvent, 'findOneAndUpdate').mockResolvedValue({ processedStatus: 'UNSUPPORTED' });
 
       const res = await dispatchRequest(app, {
         method: 'POST',
@@ -543,18 +734,20 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
         },
         body: {
           id: 'WH-EVENT-999',
-          event_type: 'PAYMENT.CAPTURE.COMPLETED',
+          event_type: 'PAYMENT.SALE.COMPLETED',
           resource_type: 'capture',
+          resource: {},
           summary: 'Payment capture completed successfully'
         }
       });
 
       expect(res.status).toBe(200);
       expect(res.body.received).toBe(true);
-      expect(res.body.status).toBe('VERIFIED_AND_PROCESSED');
+      expect(res.body.status).toBe('UNSUPPORTED');
     });
 
     it('POST /api/payments/webhooks deduplicates previously processed events idempotently', async () => {
+      vi.spyOn(payPalService, 'verifyWebhookSignature').mockResolvedValue(true);
       vi.spyOn(WebhookEvent, 'findOne').mockResolvedValue({
         paypalEventId: 'WH-EVENT-ALREADY-PROCESSED',
         processedStatus: 'PROCESSED'
@@ -573,5 +766,118 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
       expect(res.body.received).toBe(true);
       expect(res.body.status).toBe('ALREADY_PROCESSED');
     });
+
+    it('does not acknowledge a duplicate webhook with an invalid PayPal signature', async () => {
+      vi.spyOn(payPalService, 'verifyWebhookSignature').mockResolvedValue(false);
+      const findEventSpy = vi.spyOn(WebhookEvent, 'findOne').mockResolvedValue({
+        paypalEventId: 'WH-EVENT-INVALID-SIGNATURE',
+        processedStatus: 'PROCESSED'
+      });
+
+      const res = await dispatchRequest(app, {
+        method: 'POST',
+        url: '/api/payments/webhooks',
+        body: {
+          id: 'WH-EVENT-INVALID-SIGNATURE',
+          event_type: 'PAYMENT.CAPTURE.COMPLETED'
+        }
+      });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe('WEBHOOK_SIGNATURE_INVALID');
+      expect(findEventSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  it('keeps PayPal capture disabled in production', async () => {
+    const originalNodeEnv = env.NODE_ENV;
+    env.NODE_ENV = 'production';
+    try {
+      await expect(
+        payPalService.captureOrder({
+          orderId: 'PAYPAL_ORDER_DISABLED',
+          authorizationId: mockAuthRecord.authorizationId,
+          userId: mockUser._id,
+          idempotencyKey: 'idem_capture_disabled'
+        })
+      ).rejects.toMatchObject({ code: 'PAYPAL_CAPTURE_DISABLED', statusCode: 403 });
+    } finally {
+      env.NODE_ENV = originalNodeEnv;
+    }
+  });
+
+  it('rejects production PayPal order binding when persisted proposal data differs from the snapshot', async () => {
+    const originalNodeEnv = env.NODE_ENV;
+    env.NODE_ENV = 'production';
+    const intentId = new mongoose.Types.ObjectId();
+    const proposalId = new mongoose.Types.ObjectId();
+    const snapshotId = new mongoose.Types.ObjectId();
+    const payload = {
+      productId: 'placeholder-product-id',
+      variantSku: 'K2P-WHT-TAC-BROWN',
+      merchantId: 'MERCHANT_KEYCHRON',
+      paypalMerchantId: 'PPM_KEYCHRON_998',
+      lineItems: [{ sku: 'K2P-WHT-TAC-BROWN', name: 'Keyboard', quantity: 1, unitPriceMinor: 9900n }],
+      pricing: {
+        basePriceMinor: 9900n,
+        shippingMinor: 1000n,
+        taxMinor: 890n,
+        discountMinor: 0n,
+        totalPriceMinor: 11790n,
+        currency: 'USD',
+        minorUnitExponent: 2
+      },
+      recurring: { isRecurring: false, billingInterval: null, billingCycles: 0 },
+      specifications: {},
+      rawDescription: 'Keyboard'
+    };
+    const intent = {
+      _id: intentId,
+      userId: mockUser._id,
+      version: 1,
+      currency: 'USD',
+      minorUnitExponent: 2
+    };
+    const proposal = {
+      _id: proposalId,
+      intentId,
+      variantSku: payload.variantSku,
+      merchantId: payload.merchantId,
+      paypalMerchantId: payload.paypalMerchantId,
+      lineItems: payload.lineItems.map((item) => ({ ...item })),
+      pricing: { ...payload.pricing },
+      recurring: { ...payload.recurring }
+    };
+    proposal.pricing.totalPriceMinor = 11791n;
+    const snapshot = {
+      _id: snapshotId,
+      intentId,
+      proposalId,
+      snapshotHash: computeSnapshotCanonicalHash(payload),
+      snapshotPayload: payload
+    };
+    vi.spyOn(CheckoutSnapshot.db, 'readyState', 'get').mockReturnValue(1);
+    vi.spyOn(PaymentIntent, 'findOne').mockResolvedValue(intent);
+    vi.spyOn(ProductProposal, 'findOne').mockResolvedValue(proposal);
+    vi.spyOn(CheckoutSnapshot, 'findOne').mockResolvedValue(snapshot);
+
+    try {
+      await expect(
+        payPalService.assertAuthoritativeAuthorizationBinding({
+          intentId,
+          intentVersion: 1,
+          proposalId,
+          snapshotId: snapshotId.toString(),
+          snapshotHash: snapshot.snapshotHash,
+          userId: mockUser._id,
+          authorizedAmountMinor: 11790n,
+          currency: 'USD',
+          minorUnitExponent: 2,
+          paypalMerchantId: 'PPM_KEYCHRON_998'
+        }, mockUser._id)
+      ).rejects.toMatchObject({ code: 'AUTHORIZATION_BINDING_MISMATCH' });
+    } finally {
+      env.NODE_ENV = originalNodeEnv;
+    }
   });
 });

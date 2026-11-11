@@ -189,7 +189,11 @@ class IntentLockEngine:
             reasons=reasons
         )
 
-    def authorize_intent(self, intent: IntentPayload) -> Tuple[bool, AggregatedSecurityVerdict, Optional[SignedAuthorizationToken]]:
+    def authorize_intent(
+        self,
+        intent: IntentPayload,
+        binding_context: Optional[dict] = None
+    ) -> Tuple[bool, AggregatedSecurityVerdict, Optional[SignedAuthorizationToken]]:
         """
         Evaluates the intent and, if risk criteria are satisfied, issues a signed Ed25519 token.
         Persists cryptographic audit trail to the SQLite database.
@@ -218,7 +222,8 @@ class IntentLockEngine:
             intent_id=intent.intent_id,
             intent_hash=intent_hash,
             nonce=nonce,
-            validity_seconds=config.TOKEN_VALIDITY_WINDOW_SECONDS
+            validity_seconds=60 if binding_context is not None else config.TOKEN_VALIDITY_WINDOW_SECONDS,
+            binding_context=binding_context
         )
 
         # Record nonce in replay guard

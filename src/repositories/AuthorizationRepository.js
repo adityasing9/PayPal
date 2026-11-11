@@ -89,7 +89,7 @@ export class AuthorizationRepository {
       return await record.save();
     } catch (err) {
       if (err.code === 11000) {
-        throw new DuplicateNonceError(`Authorization nonce "${recordData.nonce}" already exists.`);
+        throw new DuplicateNonceError('Authorization nonce or external handoff nonce already exists.');
       }
       throw err;
     }
@@ -139,26 +139,36 @@ export class AuthorizationRepository {
       throw new TypeError('nonce, userId, idempotencyKey, and expectedSnapshotHash are required');
     }
 
-    const updated = await AuthorizationRecord.findOneAndUpdate(
-      {
-        nonce,
-        userId,
-        status: 'PENDING',
-        expiresAt: { $gt: now },
-        snapshotHash: expectedSnapshotHash
-      },
-      {
-        $set: {
-          status: 'IN_FLIGHT',
-          idempotencyKey,
-          inFlightStartedAt: now
+    let updated;
+    try {
+      updated = await AuthorizationRecord.findOneAndUpdate(
+        {
+          nonce,
+          userId,
+          status: 'PENDING',
+          expiresAt: { $gt: now },
+          snapshotHash: expectedSnapshotHash
+        },
+        {
+          $set: {
+            status: 'IN_FLIGHT',
+            idempotencyKey,
+            inFlightStartedAt: now
+          }
+        },
+        {
+          new: true,
+          runValidators: true
         }
-      },
-      {
-        new: true,
-        runValidators: true
+      );
+    } catch (error) {
+      if (error.code === 11000) {
+        throw new AuthorizationConflictError(
+          'Idempotency-Key is already reserved by another authorization.'
+        );
       }
-    );
+      throw error;
+    }
 
     if (updated) {
       return updated;

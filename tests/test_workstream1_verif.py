@@ -177,5 +177,21 @@ class TestWorkstream1(unittest.TestCase):
         self.assertIn("NEGATIVE_COST_COMPONENT_EXPLOIT", verdict.flags)
         self.assertEqual(verdict.risk_score, 1.0)
 
+    def test_discount_is_subtracted_from_authorized_total(self):
+        items = [
+            CartItem(item_id="ITEM_A", name="Item A", sku="SKU-A", unit_price=40.0, quantity=1),
+            CartItem(item_id="ITEM_B", name="Item B", sku="SKU-B", unit_price=10.0, quantity=1)
+        ]
+        costs = CostBreakdown(
+            subtotal=50.0,
+            tax=3.0,
+            shipping=5.0,
+            discount=10.0,
+            total_charged=48.0
+        )
+        verdict = self.price_verifier.verify(items, costs)
+        self.assertTrue(verdict.passed)
+        self.assertNotIn("TOTAL_CHARGED_ARITHMETIC_MISMATCH", verdict.flags)
+
 if __name__ == "__main__":
     unittest.main()

@@ -62,7 +62,7 @@ class PriceVerifier:
             )
 
         # 0. Validate cost components are non-negative
-        for cost_attr in ("subtotal", "tax", "shipping", "service_fee", "regulatory_fee", "tip", "total_charged"):
+        for cost_attr in ("subtotal", "tax", "shipping", "service_fee", "regulatory_fee", "tip", "discount", "total_charged"):
             val = getattr(costs, cost_attr, 0.0)
             if val < 0:
                 flags.append("NEGATIVE_COST_COMPONENT_EXPLOIT")
@@ -197,7 +197,7 @@ class PriceVerifier:
         # 5. Total charged check
         expected_total = (
             costs.subtotal + costs.tax + costs.shipping +
-            costs.service_fee + costs.regulatory_fee + costs.tip
+            costs.service_fee + costs.regulatory_fee + costs.tip - costs.discount
         )
         total_difference = abs(expected_total - costs.total_charged)
         if total_difference > 0.05:

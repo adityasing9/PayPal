@@ -113,6 +113,10 @@ describe('Step 2.4.1: Mongoose Models & Database Foundation', () => {
     it('handles large monetary values above Number.MAX_SAFE_INTEGER with exact precision', () => {
       const largeValue = 900719925474099200n; // Exceeds 2^53 - 1
       const record = new AuthorizationRecord({
+        authorizationId: 'auth_model_large_value',
+        snapshotId: new mongoose.Types.ObjectId().toString(),
+        paypalMerchantId: 'PPM_MODEL_TEST',
+        issuedAt: new Date(),
         proposalId: new mongoose.Types.ObjectId(),
         intentId: new mongoose.Types.ObjectId(),
         userId: new mongoose.Types.ObjectId(),
@@ -164,6 +168,48 @@ describe('Step 2.4.1: Mongoose Models & Database Foundation', () => {
       expect(nonceIndex[1]?.unique).toBe(true);
     });
 
+    it('enforces durable uniqueness for redeemed external V2 nonces without a TTL index', () => {
+      const indexes = AuthorizationRecord.schema.indexes();
+      const externalNonceIndex = indexes.find(
+        ([fields]) => fields['externalAuthorization.nonce'] === 1
+      );
+      expect(externalNonceIndex).toBeDefined();
+      expect(externalNonceIndex[1]?.unique).toBe(true);
+      expect(externalNonceIndex[1]?.partialFilterExpression).toEqual({
+        'externalAuthorization.nonce': { $type: 'string' }
+      });
+
+      const record = new AuthorizationRecord({
+        authorizationId: 'auth_v2_external',
+        snapshotId: new mongoose.Types.ObjectId().toString(),
+        paypalMerchantId: 'PPM_MODEL_TEST',
+        issuedAt: new Date(),
+        proposalId: new mongoose.Types.ObjectId(),
+        intentId: new mongoose.Types.ObjectId(),
+        userId: new mongoose.Types.ObjectId(),
+        snapshotHash: 'ab'.repeat(32),
+        publicKey: 'cd'.repeat(32),
+        nonce: 'ef'.repeat(32),
+        canonicalJsonHash: '12'.repeat(32),
+        authorizedAmountMinor: 1000n,
+        signature: 'sig',
+        expiresAt: new Date(Date.now() + 60000),
+        externalAuthorization: {
+          protocol: 'INTENTLOCK_V2_ED25519',
+          tokenId: '01'.repeat(16),
+          intentHash: '23'.repeat(64),
+          purchaseHash: '34'.repeat(64),
+          merchantId: 'MERCHANT_TEST',
+          nonce: '45'.repeat(16),
+          issuedAt: Math.floor(Date.now() / 1000),
+          expiresAt: Math.floor(Date.now() / 1000) + 60,
+          compactToken: 'header.claims.signature',
+          publicKey: '56'.repeat(32)
+        }
+      });
+      expect(record.validateSync()).toBeUndefined();
+    });
+
     it('enforces status enum including recovery and review states', () => {
       const validStatuses = [
         'PENDING',
@@ -177,6 +223,10 @@ describe('Step 2.4.1: Mongoose Models & Database Foundation', () => {
 
       for (const status of validStatuses) {
         const record = new AuthorizationRecord({
+          authorizationId: `auth_model_${status}`,
+          snapshotId: new mongoose.Types.ObjectId().toString(),
+          paypalMerchantId: 'PPM_MODEL_TEST',
+          issuedAt: new Date(),
           proposalId: new mongoose.Types.ObjectId(),
           intentId: new mongoose.Types.ObjectId(),
           userId: new mongoose.Types.ObjectId(),
