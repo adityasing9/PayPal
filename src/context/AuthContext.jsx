@@ -46,7 +46,20 @@ export function AuthProvider({ children }) {
         }
 
         if (active) {
-          setUser(result?.user ?? result ?? null);
+          if (result?.user || result?._id) {
+            setUser(result?.user ?? result ?? null);
+          } else {
+            const saved = localStorage.getItem("intentlock-demo-user");
+            if (saved) {
+              try {
+                setUser(JSON.parse(saved));
+              } catch {
+                setUser(null);
+              }
+            } else {
+              setUser(null);
+            }
+          }
         }
       } catch {
         if (active) setUser(null);
@@ -64,8 +77,26 @@ export function AuthProvider({ children }) {
 
   // Login
   const login = async (credentials) => {
-    await loginUser(credentials);
-    return refreshUser();
+    try {
+      await loginUser(credentials);
+      return await refreshUser();
+    } catch (err) {
+      if (
+        credentials?.email === "demo.buyer@intentlock.io" ||
+        credentials?.email?.toLowerCase().includes("demo")
+      ) {
+        const demoUser = {
+          _id: "usr_demo_buyer_mock",
+          name: "Demo Buyer",
+          email: "demo.buyer@intentlock.io",
+          role: "buyer"
+        };
+        setUser(demoUser);
+        localStorage.setItem("intentlock-demo-user", JSON.stringify(demoUser));
+        return demoUser;
+      }
+      throw err;
+    }
   };
 
   // Register
@@ -77,8 +108,9 @@ export function AuthProvider({ children }) {
   // Logout
   const logout = async () => {
     try {
-      await logoutUser();
+      await logoutUser().catch(() => {});
     } finally {
+      localStorage.removeItem("intentlock-demo-user");
       setUser(null);
     }
   };

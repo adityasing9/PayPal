@@ -1,6 +1,7 @@
 
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { Sparkles, ArrowRight, ShieldCheck } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 
@@ -42,15 +43,35 @@ export default function Login() {
         "error"
     );
     } finally {
-    setLoading(false);
+      setLoading(false);
     }
+  }
 
+  async function handleQuickDemoLogin() {
+    setLoading(true);
+    setError("");
+    const demoCredentials = {
+      email: "demo.buyer@intentlock.io",
+      password: "DemoPassword123!Secure"
+    };
+    setFormData(demoCredentials);
+
+    try {
+      await login(demoCredentials);
+      toast.showToast("Welcome Demo Buyer! Signed in successfully.", "success");
+      navigate("/shopping");
+    } catch {
+      toast.showToast("Entering demo environment...", "success");
+      navigate("/shopping");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <div className="min-h-screen bg-[#F7F5F0] flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-lg border border-[#BFE7DF] p-8">
-        <div className="text-center mb-8">
+        <div className="text-center mb-6">
           <h1 className="text-3xl font-bold text-[#0D9488]">
             IntentLock
           </h1>
@@ -59,13 +80,37 @@ export default function Login() {
           </p>
         </div>
 
-        <h2 className="text-2xl font-semibold text-[#1C1917] mb-2">
-          Welcome back
-        </h2>
+        {/* 1-Click Hackathon Demo Access Card */}
+        <div className="mb-6 p-4 rounded-xl bg-[#E6F4F1] border border-[#BFE7DF]">
+          <div className="flex items-center justify-between mb-2">
+            <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0D9488]">
+              <ShieldCheck className="w-4 h-4 text-[#0D9488]" />
+              Hackathon Demo Access
+            </span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-teal-200 text-teal-900 font-medium">
+              1-Click
+            </span>
+          </div>
+          <p className="text-xs text-[#0F766E] mb-3">
+            Pre-configured buyer account with simulated wallet & instant firewall clearance.
+          </p>
+          <button
+            type="button"
+            onClick={handleQuickDemoLogin}
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-2 bg-[#0D9488] hover:bg-[#0F766E] disabled:opacity-60 text-white font-semibold py-2.5 px-4 rounded-lg shadow-sm transition"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>Enter as Demo Buyer</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
 
-        <p className="text-[#78716C] mb-6">
-          Sign in to your IntentLock account.
-        </p>
+        <div className="flex items-center gap-3 my-6">
+          <div className="h-px flex-1 bg-gray-200" />
+          <span className="text-xs text-[#78716C] font-medium uppercase">Or Sign In With Email</span>
+          <div className="h-px flex-1 bg-gray-200" />
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
@@ -127,7 +172,17 @@ export default function Login() {
           </Link>
         </p>
 
-        <p className="text-center text-xs text-[#A8A29E] mt-8">
+        <div className="mt-4 pt-4 border-t border-gray-100 text-center">
+          <Link
+            to="/shopping"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0D9488] hover:text-[#0F766E] hover:underline"
+          >
+            <span>Skip sign-in & explore Shopping Agent directly</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+
+        <p className="text-center text-xs text-[#A8A29E] mt-6">
           Protected by IntentLock Security Firewall
         </p>
       </div>

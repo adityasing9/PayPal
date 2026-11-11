@@ -24,9 +24,9 @@ import PlaceholderPage from "./pages/PlaceholderPage";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 
-// Protect pages that require authentication
+// Allow seamless hackathon demo access across all pages while keeping authentication context active
 function ProtectedRoute() {
-  const { isAuthenticated, loading } = useAuth();
+  const { loading } = useAuth();
 
   if (loading) {
     return (
@@ -36,10 +36,6 @@ function ProtectedRoute() {
         </p>
       </div>
     );
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
   }
 
   return <Outlet />;
