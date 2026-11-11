@@ -471,14 +471,17 @@ fail closed rather than passing through Python floats with lost precision.
   5. Atomically transitions the internal authorization nonce from `PENDING` to
      `IN_FLIGHT` and dispatches an order using only its authorized amount,
      currency, and PayPal merchant.
-  6. Uses `PayPal-Request-Id: <Idempotency-Key>` and returns the existing
-     transaction on a safe duplicate request. A unique partial MongoDB index
+  6. Derives a stable, operation-scoped PayPal request ID (at most 34
+     characters) from the client `Idempotency-Key`, satisfying PayPal's
+     `PayPal-Request-Id` length limit while preserving retry identity. Returns
+     the existing transaction on a safe duplicate request. A unique partial MongoDB index
      reserves each idempotency key for only one authorization, including when
      concurrent requests race before a transaction record is persisted.
-  7. Bounds PayPal OAuth and order API calls by `PAYPAL_API_TIMEOUT_MS`. After
+  7. Bounds PayPal OAuth, order, capture, order-verification, and webhook
+     signature-verification calls by `PAYPAL_API_TIMEOUT_MS`. After
      an ambiguous timeout or PayPal 5xx, retry only with the same
      `Idempotency-Key`; the claimed authorization is reused and PayPal receives
-     the same `PayPal-Request-Id`. Definitive 4xx rejections require
+     the      same derived `PayPal-Request-Id`. Definitive 4xx rejections require
      reconciliation instead of redispatch.
   8. Validates the returned PayPal order ID, `CREATED` status, single purchase
      unit, exact amount/currency, and authorized merchant payee before
@@ -525,8 +528,9 @@ browser.
   - `X-CSRF-Token: <csrf_token>` (Mandatory CSRF validation; rejects missing/invalid tokens with 403 Forbidden)
   - `Idempotency-Key: <uuid_v4>` (Mandatory idempotency control)
 - **Recovery & Duplicate Prevention Invariant:**
-  - If a transaction is already `IN_FLIGHT` or `COMPLETED` for this `Idempotency-Key`, the backend returns the existing `PaymentTransaction` record.
-  - The backend **never** calls the PayPal Capture API a second time during crash recovery or retries.
+  - The authenticated user's persisted transaction and authorization are authoritative; a completed transaction returns its existing capture result.
+  - PayPal receives a deterministic, operation-scoped request ID derived from the transaction's stored order idempotency key. Retries reuse that provider request ID; concurrent attempts therefore do not create a second capture.
+  - The backend does not automatically capture on approval, redirect, or webhook. Capture requires this explicit authenticated POST.
   - If incoming from a cross-site redirect flow, session context must be recovered via intermediate same-site SPA fetch prior to invoking this endpoint.
 - **Request Body:**
 ```json
@@ -606,7 +610,7 @@ browser.
 - **Security Invariants:**
   - Validates certificate URL against SSRF: allows only exact hosts `api.paypal.com` and `api.sandbox.paypal.com`; rejects all other subdomains, IP literals, unexpected ports, loopback/private IPs, and unsafe redirects before making outbound requests.
   - Quarantines mock webhook headers (`X-IntentLock-Mock-Webhook: true`); strictly rejects mock webhooks in production (`NODE_ENV === 'production'`).
-  - Verifies the event with PayPal's `verify-webhook-signature` API before checking duplicate delivery or storing the event. `PAYPAL_WEBHOOK_ID` must be configured; the current server endpoint is PayPal Sandbox.
+  - Verifies the event with PayPal's Sandbox `verify-webhook-signature` API before checking duplicate delivery or storing the event. `PAYPAL_WEBHOOK_ID` from the same Sandbox REST app is required for every real verification, not only production; when missing, verification fails closed with HTTP 503.
   - `PAYMENT.CAPTURE.COMPLETED` matches the signed resource's order ID, capture ID, amount, and currency to a persisted transaction before conditionally moving it to `COMPLETED`.
   - `PAYMENT.CAPTURE.DENIED` applies the same order, capture, amount, currency, and state checks before moving an eligible transaction to `FAILED`.
   - `PAYMENT.CAPTURE.REFUNDED` is applied only for a full refund matched by capture ID (and order ID when present). Partial refunds are recorded as `UNSUPPORTED` because the transaction model does not track partial refund balances.

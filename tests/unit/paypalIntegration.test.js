@@ -306,12 +306,11 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
       expect(fetchSpy).toHaveBeenCalledWith(
         'https://api-m.sandbox.paypal.com/v2/checkout/orders',
         expect.objectContaining({
-          headers: expect.objectContaining({
-            'PayPal-Request-Id': 'idem_paypal_timeout_retry'
-          }),
           signal: expect.any(Object)
         })
       );
+      expect(fetchSpy.mock.calls[0][1].headers['PayPal-Request-Id']).toMatch(/^o_[a-f0-9]{32}$/);
+      expect(fetchSpy.mock.calls[0][1].headers['PayPal-Request-Id'].length).toBeLessThanOrEqual(38);
       expect(recoveringSpy).not.toHaveBeenCalled();
       expect(createTransactionSpy).not.toHaveBeenCalled();
     });
@@ -343,12 +342,10 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
 
       expect(fetchSpy).toHaveBeenCalledWith(
         'https://api-m.sandbox.paypal.com/v2/checkout/orders',
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            'PayPal-Request-Id': 'idem_paypal_server_retry'
-          })
-        })
+        expect.objectContaining({ signal: expect.any(Object) })
       );
+      expect(fetchSpy.mock.calls[0][1].headers['PayPal-Request-Id']).toMatch(/^o_[a-f0-9]{32}$/);
+      expect(fetchSpy.mock.calls[0][1].headers['PayPal-Request-Id'].length).toBeLessThanOrEqual(38);
       expect(recoveringSpy).not.toHaveBeenCalled();
     });
 
@@ -528,7 +525,7 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
         userId: mockUser._id,
         authorizationId: mockAuthRecord._id,
         proposalId: mockAuthRecord.proposalId,
-        paypalOrderId: 'PAYPAL_ORDER_TO_CAPTURE',
+        paypalOrderId: '5O190127TN364715T',
         idempotencyKey: 'idem_key_order',
         amountMinor: 11790n,
         currency: 'USD',
@@ -541,6 +538,39 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
 
       vi.spyOn(paymentTransactionRepository, 'findByOrderId').mockResolvedValue(mockTx);
       vi.spyOn(AuthorizationRecord, 'findById').mockResolvedValue(mockAuthRecord);
+      vi.spyOn(payPalService, 'isMockMode').mockReturnValue(false);
+      vi.spyOn(payPalService, 'getAccessToken').mockResolvedValue('test-access-token');
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: mockTx.paypalOrderId,
+            status: 'APPROVED',
+            purchase_units: [{
+              amount: { currency_code: 'USD', value: '117.90' },
+              payee: { merchant_id: mockAuthRecord.paypalMerchantId }
+            }]
+          })
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          json: async () => ({
+            id: mockTx.paypalOrderId,
+            status: 'COMPLETED',
+            purchase_units: [{
+              amount: { currency_code: 'USD', value: '117.90' },
+              payee: { merchant_id: mockAuthRecord.paypalMerchantId },
+              payments: {
+                captures: [{
+                  id: 'CAP_SANDBOX_TEST_1',
+                  amount: { currency_code: 'USD', value: '117.90' }
+                }]
+              }
+            }]
+          })
+        });
       const markConsumedSpy = vi.spyOn(authorizationRepository, 'markConsumed').mockResolvedValue({});
 
       const res = await dispatchRequest(app, {
@@ -552,7 +582,7 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
           'idempotency-key': 'idem_key_cap_001'
         },
         body: {
-          orderId: 'PAYPAL_ORDER_TO_CAPTURE',
+          orderId: mockTx.paypalOrderId,
           authorizationId: mockAuthRecord.authorizationId
         }
       });
@@ -562,6 +592,11 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
       expect(res.body.data.status).toBe('COMPLETED');
       expect(res.body.data.captureId).toBeDefined();
       expect(mockTx.status).toBe('COMPLETED');
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      const captureRequestId = fetchSpy.mock.calls[1][1].headers['PayPal-Request-Id'];
+      expect(captureRequestId).toMatch(/^c_[a-f0-9]{32}$/);
+      expect(captureRequestId.length).toBeLessThanOrEqual(38);
+      expect(fetchSpy.mock.calls.every(([, options]) => options.signal)).toBe(true);
       expect(markConsumedSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           nonce: mockAuthRecord.nonce

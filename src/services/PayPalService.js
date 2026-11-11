@@ -277,6 +277,15 @@ function getPayPalApiSignal() {
   return globalThis.AbortSignal.timeout(env.PAYPAL_API_TIMEOUT_MS);
 }
 
+function getPayPalRequestId(operation, idempotencyKey) {
+  const digest = crypto
+    .createHash('sha256')
+    .update(`${operation}:${idempotencyKey}`)
+    .digest('hex')
+    .slice(0, 32);
+  return `${operation === 'capture' ? 'c' : 'o'}_${digest}`;
+}
+
 async function fetchPayPal(url, options, operation) {
   let response;
   try {
@@ -665,7 +674,7 @@ export class PayPalService {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
-          'PayPal-Request-Id': idempotencyKey
+          'PayPal-Request-Id': getPayPalRequestId('order', idempotencyKey)
         },
         body: JSON.stringify(orderPayload)
       }, 'order creation');
@@ -941,7 +950,7 @@ export class PayPalService {
       paypalCaptureId = `CAP_${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
     } else {
       const accessToken = await this.getAccessToken();
-      const verifiedOrderResponse = await fetch(
+      const verifiedOrderResponse = await fetchPayPal(
         `https://api-m.sandbox.paypal.com/v2/checkout/orders/${encodeURIComponent(orderId)}`,
         {
           method: 'GET',
@@ -949,7 +958,8 @@ export class PayPalService {
             Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json'
           }
-        }
+        },
+        'order verification'
       );
       if (!verifiedOrderResponse.ok) {
         throw new PayPalPaymentError(
@@ -959,7 +969,16 @@ export class PayPalService {
         );
       }
 
-      const verifiedOrder = await verifiedOrderResponse.json();
+      let verifiedOrder;
+      try {
+        verifiedOrder = await verifiedOrderResponse.json();
+      } catch {
+        throw new PayPalPaymentError(
+          'PayPal order verification returned an invalid response.',
+          'PAYPAL_INVALID_RESPONSE',
+          502
+        );
+      }
       assertPayPalOrderMatchesAuthorization(verifiedOrder, {
         amountValue: minorUnitsToPayPalValue(
           authRecord.authorizedAmountMinor,
@@ -970,16 +989,17 @@ export class PayPalService {
         expectedStatus: 'APPROVED'
       });
 
-      const response = await fetch(
+      const response = await fetchPayPal(
         `https://api-m.sandbox.paypal.com/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`,
         {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
-            'PayPal-Request-Id': `cap_${tx.idempotencyKey}`
+            'PayPal-Request-Id': getPayPalRequestId('capture', tx.idempotencyKey)
           }
-        }
+        },
+        'capture'
       );
 
       if (!response.ok) {
@@ -990,7 +1010,16 @@ export class PayPalService {
         );
       }
 
-      const captureData = await response.json();
+      let captureData;
+      try {
+        captureData = await response.json();
+      } catch {
+        throw new PayPalPaymentError(
+          'PayPal capture returned an invalid response; retry with the same Idempotency-Key.',
+          'PAYPAL_INVALID_RESPONSE',
+          502
+        );
+      }
       const captureObj = captureData.purchase_units?.[0]?.payments?.captures?.[0];
       const expectedAmount = minorUnitsToPayPalValue(
         authRecord.authorizedAmountMinor,
@@ -1137,7 +1166,7 @@ export class PayPalService {
     }
 
     const accessToken = await this.getAccessToken();
-    const response = await fetch(
+    const response = await fetchPayPal(
       'https://api-m.sandbox.paypal.com/v1/notifications/verify-webhook-signature',
       {
         method: 'POST',
@@ -1150,7 +1179,8 @@ export class PayPalService {
           webhook_id: env.PAYPAL_WEBHOOK_ID,
           webhook_event: bodyObj
         })
-      }
+      },
+      'webhook signature verification'
     );
     if (!response.ok) {
       throw new PayPalPaymentError(
@@ -1160,7 +1190,16 @@ export class PayPalService {
       );
     }
 
-    const verification = await response.json();
+    let verification;
+    try {
+      verification = await response.json();
+    } catch {
+      throw new PayPalPaymentError(
+        'PayPal webhook verification returned an invalid response.',
+        'PAYPAL_INVALID_RESPONSE',
+        502
+      );
+    }
     return verification?.verification_status === 'SUCCESS';
   }
 
