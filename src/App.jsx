@@ -24,9 +24,9 @@ import PlaceholderPage from "./pages/PlaceholderPage";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 
-// Allow seamless hackathon demo access across all pages while keeping authentication context active
+// Strictly protect internal routes: unauthenticated users cannot access dashboard or pages by editing URL
 function ProtectedRoute() {
-  const { loading } = useAuth();
+  const { isAuthenticated, loading } = useAuth();
 
   if (loading) {
     return (
@@ -36,6 +36,10 @@ function ProtectedRoute() {
         </p>
       </div>
     );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
   }
 
   return <Outlet />;

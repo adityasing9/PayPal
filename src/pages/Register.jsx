@@ -1,13 +1,13 @@
 
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 
 export default function Register() {
   const navigate = useNavigate();
   const toast = useToast();
-  const { register } = useAuth();
+  const { register, isAuthenticated } = useAuth();
 
   const [formData, setFormData] = useState({
     name: "",
@@ -18,6 +18,10 @@ export default function Register() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  if (isAuthenticated) {
+    return <Navigate to="/" replace />;
+  }
 
   function handleChange(e) {
     setFormData({

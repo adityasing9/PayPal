@@ -1,6 +1,6 @@
 
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, Navigate } from "react-router-dom";
 import { Sparkles, ArrowRight, ShieldCheck } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -8,7 +8,7 @@ import { useToast } from "../context/ToastContext";
 export default function Login() {
   const navigate = useNavigate();
   const toast = useToast();
-  const { login } = useAuth();
+  const { login, isAuthenticated } = useAuth();
 
   const [formData, setFormData] = useState({
     email: "",
@@ -17,6 +17,10 @@ export default function Login() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  if (isAuthenticated) {
+    return <Navigate to="/" replace />;
+  }
 
   function handleChange(e) {
     setFormData({
@@ -171,16 +175,6 @@ export default function Login() {
             Create account
           </Link>
         </p>
-
-        <div className="mt-4 pt-4 border-t border-gray-100 text-center">
-          <Link
-            to="/shopping"
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0D9488] hover:text-[#0F766E] hover:underline"
-          >
-            <span>Skip sign-in & explore Shopping Agent directly</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </Link>
-        </div>
 
         <p className="text-center text-xs text-[#A8A29E] mt-6">
           Protected by IntentLock Security Firewall
