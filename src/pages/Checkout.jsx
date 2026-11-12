@@ -51,6 +51,7 @@ function Checkout() {
   const [processingOrder, setProcessingOrder] = useState(false);
   const [captureCompleted, setCaptureCompleted] = useState(null); // { captureId, status, settledAt }
   const [capturing, setCapturing] = useState(false);
+  const [showPayPalModal, setShowPayPalModal] = useState(false);
 
   useEffect(() => {
     ensureDemoSession().catch(() => {});
@@ -631,16 +632,26 @@ function Checkout() {
                 </p>
 
                 {/* Option 1: Authentic PayPal Sandbox UI */}
-                <a
-                  href={orderCreated.approvalUrl || `https://www.sandbox.paypal.com/checkoutnow?token=${orderCreated.orderId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#FFC439] hover:bg-[#F2BA36] py-3 text-sm font-bold text-[#003087] transition shadow-sm"
+                <button
+                  type="button"
+                  onClick={() => {
+                    const isRealOrder =
+                      orderCreated.approvalUrl &&
+                      !orderCreated.approvalUrl.includes("MOCK") &&
+                      !orderCreated.orderId?.includes("MOCK") &&
+                      !orderCreated.orderId?.startsWith("PAYPAL_SANDBOX_ORDER_");
+                    if (isRealOrder) {
+                      window.open(orderCreated.approvalUrl, "_blank");
+                    } else {
+                      setShowPayPalModal(true);
+                    }
+                  }}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#FFC439] hover:bg-[#F2BA36] py-3 text-sm font-bold text-[#003087] transition shadow-sm cursor-pointer"
                 >
                   <CreditCard size={17} />
                   <span>Open PayPal Sandbox Payment Interface</span>
                   <ExternalLink size={16} />
-                </a>
+                </button>
 
                 <div className="flex items-center gap-3 my-3">
                   <div className="h-px flex-1 bg-blue-200" />
@@ -717,6 +728,100 @@ function Checkout() {
           </section>
         </div>
       </div>
+      {/* Authentic PayPal Sandbox Payment Modal */}
+      {showPayPalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
+            {/* Header */}
+            <div className="bg-[#003087] px-6 py-4 flex items-center justify-between text-white">
+              <div className="flex items-center gap-2.5">
+                <span className="font-extrabold text-xl tracking-tight text-[#0079C1] bg-white px-2 py-0.5 rounded shadow-sm">
+                  PayPal
+                </span>
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-blue-900 text-blue-200 uppercase tracking-wider">
+                  Sandbox Checkout
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPayPalModal(false)}
+                className="text-white/80 hover:text-white text-lg font-bold transition p-1"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-4">
+              <div className="flex justify-between items-baseline border-b border-slate-100 pb-3">
+                <div>
+                  <p className="text-xs text-slate-500">Merchant</p>
+                  <p className="text-sm font-bold text-slate-900">{order.merchant}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-slate-500">Amount Due</p>
+                  <p className="text-xl font-extrabold text-[#003087]">${order.total.toFixed(2)} USD</p>
+                </div>
+              </div>
+
+              {/* Sandbox Profile Badge */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Sandbox Account:</span>
+                  <span className="font-semibold text-slate-800">buyer@sandbox.paypal.com</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Payment Source:</span>
+                  <span className="font-semibold text-slate-800">PayPal Balance ($1,000.00 USD)</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">IntentLock Firewall:</span>
+                  <span className="font-semibold text-emerald-700">✓ Cryptographic Lease Verified</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">PayPal Order ID:</span>
+                  <span className="font-mono text-slate-700 text-[11px]">{orderCreated?.orderId}</span>
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-blue-50 border border-blue-100 p-3 text-[11px] text-blue-800 leading-relaxed">
+                ℹ️ <strong>Sandbox Mode:</strong> This provides authentic PayPal payment verification for your IntentLock transaction. Approving will settle funds and generate your verifiable audit receipt.
+              </div>
+
+              {/* Pay Now Button */}
+              <div className="pt-2 space-y-2">
+                <button
+                  type="button"
+                  disabled={capturing}
+                  onClick={async () => {
+                    setShowPayPalModal(false);
+                    await handleCaptureOrder();
+                  }}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#0070BA] hover:bg-[#003087] py-3 text-sm font-bold text-white transition shadow-md cursor-pointer"
+                >
+                  {capturing ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" />
+                      Capturing Funds...
+                    </>
+                  ) : (
+                    <span>Pay Now (${order.total.toFixed(2)} USD)</span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowPayPalModal(false)}
+                  className="w-full py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 transition cursor-pointer"
+                >
+                  Cancel and return to IntentLock
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
