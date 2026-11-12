@@ -8,7 +8,7 @@ import {
   ShieldAlert,
   Clock,
   Receipt,
-  IndianRupee,
+  DollarSign,
   Filter,
   CalendarDays,
   ExternalLink,
@@ -17,50 +17,50 @@ import {
 const initialTransactions = [
   {
     id: "IL-2026-001",
-    product: "Wireless Headphones",
-    merchant: "Tech Store",
-    date: "2026-11-08",
-    amount: 2499,
+    product: "Keychron K2 Pro Mechanical Keyboard",
+    merchant: "Keychron Official Store",
+    date: "2026-11-10",
+    amount: 117.90,
     status: "Completed",
-    security: "Verified",
-    payment: "Paid",
+    security: "Verified (Ed25519 Signed)",
+    payment: "Paid (PayPal)",
   },
   {
     id: "IL-2026-002",
-    product: "Gaming Keyboard",
-    merchant: "Gadget World",
-    date: "2026-11-07",
-    amount: 1799,
+    product: "Logitech MX Mechanical Keyboard",
+    merchant: "Logitech Official",
+    date: "2026-11-09",
+    amount: 195.29,
     status: "Blocked",
     security: "Price exceeded budget",
     payment: "Not charged",
   },
   {
     id: "IL-2026-003",
-    product: "Bluetooth Speaker",
-    merchant: "Audio Hub",
-    date: "2026-11-06",
-    amount: 1299,
+    product: "Audio-Technica ATH-M50xBT2",
+    merchant: "Audio-Technica Direct",
+    date: "2026-11-08",
+    amount: 228.90,
     status: "Pending",
     security: "Awaiting verification",
     payment: "Pending",
   },
   {
     id: "IL-2026-004",
-    product: "Laptop Stand",
-    merchant: "Office Essentials",
+    product: "Anker USB-C Docking Hub",
+    merchant: "Anker Direct",
     date: "2026-11-04",
-    amount: 899,
+    amount: 59.99,
     status: "Completed",
     security: "Verified",
-    payment: "Paid",
+    payment: "Paid (PayPal)",
   },
   {
     id: "IL-2026-005",
-    product: "Smart Watch",
+    product: "Unverified Smart Watch",
     merchant: "Unknown Seller",
     date: "2026-11-02",
-    amount: 3499,
+    amount: 89.99,
     status: "Blocked",
     security: "Merchant requires review",
     payment: "Not charged",
@@ -74,7 +74,18 @@ const statusStyles = {
 };
 
 function Transactions() {
-  const [transactions] = useState(initialTransactions);
+  const [transactions] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("intentlock_transactions") || "[]");
+      if (Array.isArray(saved) && saved.length > 0) {
+        const ids = new Set(saved.map((s) => s.id));
+        return [...saved, ...initialTransactions.filter((d) => !ids.has(d.id))];
+      }
+    } catch {
+      // Fallback
+    }
+    return initialTransactions;
+  });
   const [activeFilter, setActiveFilter] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -153,10 +164,10 @@ function Transactions() {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <p className="text-sm text-slate-500">Total spent</p>
-            <IndianRupee className="text-blue-600" size={21} />
+            <DollarSign className="text-blue-600" size={21} />
           </div>
           <h2 className="mt-3 text-2xl font-bold text-slate-900">
-            ₹{totalSpent.toLocaleString("en-IN")}
+            ${totalSpent.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </h2>
           <p className="mt-1 text-xs text-slate-500">
             From completed sample purchases
@@ -287,7 +298,7 @@ function Transactions() {
                         <CalendarDays size={15} />
                         {new Date(
                           transaction.date + "T00:00:00"
-                        ).toLocaleDateString("en-IN", {
+                        ).toLocaleDateString("en-US", {
                           day: "2-digit",
                           month: "short",
                           year: "numeric",
@@ -296,7 +307,7 @@ function Transactions() {
                     </td>
 
                     <td className="px-5 py-4 font-semibold text-slate-900">
-                      ₹{transaction.amount.toLocaleString("en-IN")}
+                      ${Number(transaction.amount).toFixed(2)} USD
                     </td>
 
                     <td className="px-5 py-4">

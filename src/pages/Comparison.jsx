@@ -8,7 +8,7 @@ import {
   Star,
   ShieldCheck,
   ShoppingBag,
-  IndianRupee,
+  DollarSign,
   Trophy,
   Scale,
   Info,
@@ -19,7 +19,7 @@ const products = [
     id: 1,
     name: "SoundCore Life Q20",
     brand: "Soundcore",
-    price: 3999,
+    price: 49.99,
     rating: 4.4,
     reviews: "2,450",
     image: "🎧",
@@ -35,7 +35,7 @@ const products = [
     id: 2,
     name: "Sony WH-CH520",
     brand: "Sony",
-    price: 4499,
+    price: 59.99,
     rating: 4.5,
     reviews: "3,820",
     image: "🎧",
@@ -51,7 +51,7 @@ const products = [
     id: 3,
     name: "JBL Tune 770NC",
     brand: "JBL",
-    price: 5999,
+    price: 79.99,
     rating: 4.3,
     reviews: "1,890",
     image: "🎧",
@@ -143,10 +143,10 @@ function Comparison() {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <p className="text-sm text-slate-500">Lowest price</p>
-            <IndianRupee size={21} className="text-green-600" />
+            <DollarSign size={21} className="text-green-600" />
           </div>
           <h2 className="mt-3 text-3xl font-bold text-slate-900">
-            ₹{lowestPrice.toLocaleString("en-IN")}
+            ${lowestPrice.toFixed(2)} USD
           </h2>
           <p className="mt-1 text-sm text-slate-500">
             Among compared products
@@ -224,7 +224,7 @@ function Comparison() {
                 </div>
 
                 <p className="mt-4 text-2xl font-bold text-slate-900">
-                  ₹{product.price.toLocaleString("en-IN")}
+                  ${product.price.toFixed(2)} USD
                 </p>
 
                 <button
@@ -296,7 +296,7 @@ function Comparison() {
                           : "text-slate-900"
                       }`}
                     >
-                      ₹{product.price.toLocaleString("en-IN")}
+                      ${product.price.toFixed(2)} USD
                     </td>
                   ))}
                 </tr>
@@ -356,7 +356,7 @@ function Comparison() {
               </p>
 
               <p className="mt-1 text-sm text-slate-600">
-                ₹{chosenProduct.price.toLocaleString("en-IN")} · Rating{" "}
+                ${chosenProduct.price.toFixed(2)} USD · Rating{" "}
                 {chosenProduct.rating}/5
               </p>
             </div>

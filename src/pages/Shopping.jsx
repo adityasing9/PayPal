@@ -87,7 +87,7 @@ const defaultCatalogItems = [
     merchant: "Audio-Technica Direct",
     paypalMerchantId: "PPM_AUDIO_552",
     match: 95,
-    suitable: true,
+    suitable: false,
   },
 ];
 
@@ -450,16 +450,23 @@ function Shopping() {
                   {product.image}
                 </div>
 
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-500">{product.brand}</span>
-                  <span
-                    className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                      product.suitable ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"
-                    }`}
-                  >
-                    {product.suitable ? "Within Budget" : "Exceeds Budget"}
-                  </span>
-                </div>
+                {(() => {
+                  const maxBudgetMinor = activeIntent?.maxBudgetMinor ? BigInt(activeIntent.maxBudgetMinor) : 12000n;
+                  const itemPriceMinor = product.priceMinor ? BigInt(product.priceMinor) : BigInt(Math.round((product.price || 0) * 100));
+                  const isWithinBudget = itemPriceMinor <= maxBudgetMinor;
+                  return (
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-500">{product.brand}</span>
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          isWithinBudget ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"
+                        }`}
+                      >
+                        {isWithinBudget ? "Within Budget" : "Exceeds Budget"}
+                      </span>
+                    </div>
+                  );
+                })()}
 
                 <h3 className="text-base font-semibold text-slate-900 line-clamp-1">{product.name}</h3>
                 <p className="mt-2 text-2xl font-bold text-slate-900">${product.price.toFixed(2)} USD</p>

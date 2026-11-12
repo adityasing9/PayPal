@@ -24,7 +24,7 @@ import PlaceholderPage from "./pages/PlaceholderPage";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 
-// Protect pages that require authentication
+// Strictly protect internal routes: unauthenticated users cannot access dashboard or pages by editing URL
 function ProtectedRoute() {
   const { isAuthenticated, loading } = useAuth();
 

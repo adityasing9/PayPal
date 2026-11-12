@@ -2,7 +2,7 @@
 import {
   ShieldCheck,
   PackageCheck,
-  IndianRupee,
+  DollarSign,
   Store,
   RefreshCw,
   ScanSearch,
@@ -24,7 +24,7 @@ const securityChecks = [
   {
     title: "Price Verification",
     description: "Checks the product price against your approved budget.",
-    icon: IndianRupee,
+    icon: DollarSign,
     status: "Awaiting verification",
     color: "green",
   },

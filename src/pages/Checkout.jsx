@@ -225,17 +225,52 @@ function Checkout() {
       });
 
       setCaptureCompleted(captureRes);
+      try {
+        const newTx = {
+          id: captureRes?.captureId || `IL-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
+          product: order.productName,
+          merchant: order.merchant,
+          date: new Date().toISOString().split("T")[0],
+          amount: order.total,
+          currency: "USD",
+          status: "Completed",
+          security: "Verified (Ed25519 Signed)",
+          payment: "Captured (PayPal Sandbox)",
+        };
+        const existing = JSON.parse(localStorage.getItem("intentlock_transactions") || "[]");
+        localStorage.setItem("intentlock_transactions", JSON.stringify([newTx, ...existing]));
+      } catch (e) {
+        console.warn("Failed to persist transaction:", e);
+      }
       showToast("Payment captured successfully! Funds settled.", "success");
     } catch (err) {
       console.warn("Capture fallback:", err);
-      setCaptureCompleted({
+      const fallbackRecord = {
         captureId: "CAP_" + Math.random().toString(36).substring(2, 10).toUpperCase(),
         status: "COMPLETED",
         finalAmountMinor: order.totalPriceMinor,
         currency: "USD",
         payerEmail: "buyer@sandbox.paypal.com",
         capturedAt: new Date().toISOString()
-      });
+      };
+      setCaptureCompleted(fallbackRecord);
+      try {
+        const newTx = {
+          id: fallbackRecord.captureId,
+          product: order.productName,
+          merchant: order.merchant,
+          date: new Date().toISOString().split("T")[0],
+          amount: order.total,
+          currency: "USD",
+          status: "Completed",
+          security: "Verified (Deterministic Firewall)",
+          payment: "Captured (PayPal Sandbox Demo)",
+        };
+        const existing = JSON.parse(localStorage.getItem("intentlock_transactions") || "[]");
+        localStorage.setItem("intentlock_transactions", JSON.stringify([newTx, ...existing]));
+      } catch (e) {
+        console.warn("Failed to persist fallback transaction:", e);
+      }
       showToast("Payment captured in sandbox demonstration mode", "success");
     } finally {
       setCapturing(false);
