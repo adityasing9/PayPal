@@ -1,8 +1,10 @@
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
+import { existsSync } from 'node:fs';
 import mongoose from 'mongoose';
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fileURLToPath } from 'node:url';
 import { app as paymentApp } from '../../src/app.js';
 import { env } from '../../src/config/env.js';
 import {
@@ -22,7 +24,8 @@ import { generateCsrfToken } from '../../src/utils/cryptoUtils.js';
 import { startFlaskAuthorizationService } from '../helpers/liveFlaskAuthorizationService.js';
 
 const require = createRequire(import.meta.url);
-const parentApp = require('../../../server.js');
+const parentServerPath = fileURLToPath(new URL('../../../server.js', import.meta.url));
+const parentApp = existsSync(parentServerPath) ? require(parentServerPath) : null;
 const mongoTestUri = process.env.MONGODB_TEST_URI;
 
 describe('Parent BFF to Node and Flask payment integration', () => {
@@ -30,7 +33,7 @@ describe('Parent BFF to Node and Flask payment integration', () => {
     vi.restoreAllMocks();
   });
 
-  it.skipIf(!mongoTestUri)(
+  it.skipIf(!mongoTestUri || !parentApp)(
     'authorizes stored purchase data and safely recovers order persistence failures with the same key',
     async () => {
       const databaseName = `intentlock_bff_test_${process.pid}_${Date.now()}`;
