@@ -30,6 +30,44 @@ describe('Stage 3 Security Remediation: SEC-03, SEC-04, SEC-05, SEC-06, SEC-10',
   let authRecordA;
   let payPalService;
 
+  function prepareCaptureFixture(tx) {
+    tx.proposalId ??= authRecordA.proposalId;
+    tx.minorUnitExponent ??= authRecordA.minorUnitExponent ?? 2;
+    tx.idempotencyKey ??= `test_capture_${tx.paypalOrderId || 'order'}`;
+    authRecordA.status = 'IN_FLIGHT';
+    authRecordA.idempotencyKey = tx.idempotencyKey;
+  }
+
+  function approvedPayPalOrder(id) {
+    return {
+      id,
+      status: 'APPROVED',
+      purchase_units: [{
+        amount: { currency_code: authRecordA.currency, value: '117.90' },
+        payee: { merchant_id: authRecordA.paypalMerchantId }
+      }]
+    };
+  }
+
+  function completedPayPalOrder(id, captureId) {
+    return {
+      id,
+      status: 'COMPLETED',
+      purchase_units: [{
+        amount: { currency_code: authRecordA.currency, value: '117.90' },
+        payee: { merchant_id: authRecordA.paypalMerchantId },
+        payments: {
+          captures: [{
+            id: captureId,
+            status: 'COMPLETED',
+            amount: { currency_code: authRecordA.currency, value: '117.90' }
+          }]
+        }
+      }],
+      payer: { email_address: 'buyer@sandbox.paypal.com' }
+    };
+  }
+
   beforeEach(() => {
     vi.restoreAllMocks();
     payPalService = new PayPalService();
@@ -238,6 +276,7 @@ describe('Stage 3 Security Remediation: SEC-03, SEC-04, SEC-05, SEC-06, SEC-10',
         currency: 'USD'
       };
 
+      prepareCaptureFixture(mockTx);
       vi.spyOn(paymentTransactionRepository, 'findByOrderId').mockResolvedValue(mockTx);
       vi.spyOn(AuthorizationRecord, 'findById').mockResolvedValue(authRecordA);
 
@@ -317,8 +356,14 @@ describe('Stage 3 Security Remediation: SEC-03, SEC-04, SEC-05, SEC-06, SEC-10',
         status: 'CREATED',
         amountMinor: 11790n,
         currency: 'USD',
-        approvalUrl: 'https://sandbox.paypal.com/checkoutnow?token=PAYPAL_ORDER_REPLAY_SAFE'
+        approvalUrl: 'https://sandbox.paypal.com/checkoutnow?token=PAYPAL_ORDER_REPLAY_SAFE',
+        authorizationId: authRecordA._id,
+        proposalId: authRecordA.proposalId,
+        minorUnitExponent: authRecordA.minorUnitExponent
       };
+      authRecordA.status = 'IN_FLIGHT';
+      authRecordA.idempotencyKey = idempotencyKey;
+      vi.spyOn(authorizationRepository, 'findByAuthorizationId').mockResolvedValue(authRecordA);
 
       vi.spyOn(paymentTransactionRepository, 'findByIdempotencyKey').mockResolvedValue(existingTx);
 
@@ -473,6 +518,23 @@ describe('Stage 3 Security Remediation: SEC-03, SEC-04, SEC-05, SEC-06, SEC-10',
       );
     });
 
+    it('Rejects capture response when amount has more fractional precision than the transaction allows', () => {
+      const captureObj = {
+        id: 'CAP_AMOUNT_OVERPRECISE',
+        status: 'COMPLETED',
+        amount: { currency_code: 'USD', value: '117.900' }
+      };
+
+      expect(() => {
+        payPalService.validateCaptureResponse(captureObj, baseTx);
+      }).toThrow(
+        expect.objectContaining({
+          code: 'MALFORMED_CAPTURE_RESPONSE',
+          statusCode: 502
+        })
+      );
+    });
+
     it('Rejects capture response when capture object is null or missing', () => {
       expect(() => {
         payPalService.validateCaptureResponse(null, baseTx);
@@ -532,6 +594,7 @@ describe('Stage 3 Security Remediation: SEC-03, SEC-04, SEC-05, SEC-06, SEC-10',
         currency: 'USD'
       };
 
+      prepareCaptureFixture(mockTx);
       vi.spyOn(paymentTransactionRepository, 'findByOrderId').mockResolvedValue(mockTx);
       vi.spyOn(AuthorizationRecord, 'findById').mockResolvedValue(authRecordA);
       // Simulate claim returning null because another worker holds the active lease
@@ -568,6 +631,7 @@ describe('Stage 3 Security Remediation: SEC-03, SEC-04, SEC-05, SEC-06, SEC-10',
         currency: 'USD'
       };
 
+      prepareCaptureFixture(mockTx);
       vi.spyOn(paymentTransactionRepository, 'findByOrderId').mockResolvedValue(mockTx);
       vi.spyOn(AuthorizationRecord, 'findById').mockResolvedValue(authRecordA);
 
@@ -613,6 +677,7 @@ describe('Stage 3 Security Remediation: SEC-03, SEC-04, SEC-05, SEC-06, SEC-10',
         idempotencyKey: 'idem_retry_recon'
       };
 
+      prepareCaptureFixture(mockTx);
       vi.spyOn(paymentTransactionRepository, 'findByOrderId').mockResolvedValue(mockTx);
       vi.spyOn(AuthorizationRecord, 'findById').mockResolvedValue(authRecordA);
 
@@ -628,29 +693,7 @@ describe('Stage 3 Security Remediation: SEC-03, SEC-04, SEC-05, SEC-06, SEC-10',
       vi.spyOn(payPalService, 'isMockMode').mockReturnValue(false);
       vi.spyOn(payPalService, 'getAccessToken').mockResolvedValue('MOCK_TEST_TOKEN');
       vi.spyOn(payPalService, 'getOrderDetails')
-        .mockResolvedValueOnce({
-          id: 'ORDER_RECOVERED_EXTERNALLY',
-          status: 'APPROVED' // Gate 2 check
-        })
-        .mockResolvedValueOnce({
-          // Pre-retry check (acquiredVersion > 1)
-          id: 'ORDER_RECOVERED_EXTERNALLY',
-          status: 'COMPLETED',
-          purchase_units: [
-            {
-              payments: {
-                captures: [
-                  {
-                    id: 'CAP_ALREADY_CAPTURED_BY_PRIOR_WORKER',
-                    status: 'COMPLETED',
-                    amount: { currency_code: 'USD', value: '117.90' }
-                  }
-                ]
-              }
-            }
-          ],
-          payer: { email_address: 'buyer@sandbox.paypal.com' }
-        });
+        .mockResolvedValue(completedPayPalOrder('ORDER_RECOVERED_EXTERNALLY', 'CAP_ALREADY_CAPTURED_BY_PRIOR_WORKER'));
 
       const settleSpy = vi.spyOn(paymentTransactionRepository, 'settleCapture').mockResolvedValue({
         _id: mockTx._id,
@@ -729,6 +772,7 @@ describe('Stage 3 Security Remediation: SEC-03, SEC-04, SEC-05, SEC-06, SEC-10',
         currency: 'USD'
       };
 
+      prepareCaptureFixture(mockTx);
       vi.spyOn(paymentTransactionRepository, 'findByOrderId').mockResolvedValue(mockTx);
       vi.spyOn(AuthorizationRecord, 'findById').mockResolvedValue(authRecordA);
 
@@ -776,6 +820,7 @@ describe('Stage 3 Security Remediation: SEC-03, SEC-04, SEC-05, SEC-06, SEC-10',
         currency: 'USD'
       };
 
+      prepareCaptureFixture(mockTx);
       vi.spyOn(paymentTransactionRepository, 'findByOrderId').mockResolvedValue(mockTx);
       vi.spyOn(AuthorizationRecord, 'findById').mockResolvedValue(authRecordA);
 
@@ -791,7 +836,7 @@ describe('Stage 3 Security Remediation: SEC-03, SEC-04, SEC-05, SEC-06, SEC-10',
       vi.spyOn(authorizationRepository, 'markConsumed').mockResolvedValue({});
 
       vi.spyOn(payPalService, 'isMockMode').mockReturnValue(false);
-      vi.spyOn(payPalService, 'getOrderDetails').mockResolvedValue({ id: 'ORDER_STABLE_REQUEST_ID', status: 'APPROVED' });
+      vi.spyOn(payPalService, 'getOrderDetails').mockResolvedValue(approvedPayPalOrder('ORDER_STABLE_REQUEST_ID'));
       vi.spyOn(payPalService, 'getAccessToken').mockResolvedValue('MOCK_ACCESS_TOKEN');
 
       let capturedHeaders = null;
@@ -800,21 +845,7 @@ describe('Stage 3 Security Remediation: SEC-03, SEC-04, SEC-05, SEC-06, SEC-10',
         return {
           ok: true,
           status: 200,
-          json: async () => ({
-            purchase_units: [
-              {
-                payments: {
-                  captures: [
-                    {
-                      id: 'CAP_STABLE_1',
-                      status: 'COMPLETED',
-                      amount: { currency_code: 'USD', value: '117.90' }
-                    }
-                  ]
-                }
-              }
-            ]
-          })
+          json: async () => completedPayPalOrder('ORDER_STABLE_REQUEST_ID', 'CAP_STABLE_1')
         };
       });
 
@@ -826,7 +857,7 @@ describe('Stage 3 Security Remediation: SEC-03, SEC-04, SEC-05, SEC-06, SEC-10',
         idempotencyKey: 'idem_stable_req_id'
       });
 
-      expect(capturedHeaders['PayPal-Request-Id']).toBe('cap_ORDER_STABLE_REQUEST_ID');
+      expect(capturedHeaders['PayPal-Request-Id']).toMatch(/^c_[a-f0-9]{32}$/);
     });
 
     it('Crash recovery: PayPal 422 ORDER_ALREADY_CAPTURED triggers safe reconciliation without failing', async () => {
@@ -842,6 +873,7 @@ describe('Stage 3 Security Remediation: SEC-03, SEC-04, SEC-05, SEC-06, SEC-10',
         currency: 'USD'
       };
 
+      prepareCaptureFixture(mockTx);
       vi.spyOn(paymentTransactionRepository, 'findByOrderId').mockResolvedValue(mockTx);
       vi.spyOn(AuthorizationRecord, 'findById').mockResolvedValue(authRecordA);
 
@@ -861,26 +893,9 @@ describe('Stage 3 Security Remediation: SEC-03, SEC-04, SEC-05, SEC-06, SEC-10',
 
       // Gate 2 says APPROVED initially
       vi.spyOn(payPalService, 'getOrderDetails')
-        .mockResolvedValueOnce({ id: 'ORDER_CRASH_RECOVERY_422', status: 'APPROVED' })
+        .mockResolvedValueOnce(approvedPayPalOrder('ORDER_CRASH_RECOVERY_422'))
         // Second call upon 422 recovers completed order
-        .mockResolvedValueOnce({
-          id: 'ORDER_CRASH_RECOVERY_422',
-          status: 'COMPLETED',
-          purchase_units: [
-            {
-              payments: {
-                captures: [
-                  {
-                    id: 'CAP_RECONCILED_FROM_422',
-                    status: 'COMPLETED',
-                    amount: { currency_code: 'USD', value: '117.90' }
-                  }
-                ]
-              }
-            }
-          ],
-          payer: { email_address: 'buyer@sandbox.paypal.com' }
-        });
+        .mockResolvedValueOnce(completedPayPalOrder('ORDER_CRASH_RECOVERY_422', 'CAP_RECONCILED_FROM_422'));
 
       // Fetch /capture returns 422 UNPROCESSABLE_ENTITY with ORDER_ALREADY_CAPTURED
       vi.spyOn(globalThis, 'fetch').mockResolvedValue({

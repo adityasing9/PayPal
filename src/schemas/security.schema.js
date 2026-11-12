@@ -20,6 +20,7 @@ export const verifyProposalSchema = z.object({
     requiredSpecs: z.record(z.unknown()).optional().default({})
   }),
   snapshot: z.object({
+    intentId: z.string().min(1, 'Snapshot intent ID is required').optional(),
     snapshotId: z.string().min(1, 'Snapshot ID is required'),
     snapshotHash: sha256HexSchema,
     proposalId: z.string().min(1, 'Proposal ID is required'),
@@ -57,5 +58,17 @@ export const canonicalAuthorizationSchema = z.object({
   nonce: sha256HexSchema,
   issuedAt: z.string().datetime({ message: 'issuedAt must be a valid ISO 8601 datetime' }),
   expiresAt: z.string().datetime({ message: 'expiresAt must be a valid ISO 8601 datetime' }),
-  authMode: z.enum(['LIVE_FIREWALL', 'MOCK_DETERMINISTIC'])
+  authMode: z.enum(['LIVE_FIREWALL', 'MOCK_DETERMINISTIC']),
+  externalAuthorization: z.object({
+    protocol: z.literal('INTENTLOCK_V2_ED25519'),
+    tokenId: z.string().regex(/^[0-9a-f]{32}$/),
+    intentHash: z.string().regex(/^[0-9a-f]{128}$/),
+    purchaseHash: z.string().regex(/^[0-9a-f]{128}$/),
+    merchantId: z.string().min(1),
+    nonce: z.string().regex(/^[0-9a-f]{32}$/),
+    issuedAt: z.number().int().positive(),
+    expiresAt: z.number().int().positive(),
+    compactToken: z.string().min(1),
+    publicKey: z.string().regex(/^[0-9a-fA-F]{64}$/)
+  }).optional()
 });

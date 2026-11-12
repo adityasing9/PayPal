@@ -25,13 +25,14 @@ All configuration is parsed and validated at boot time via `src/config/env.js`.
 | `CSRF_SECRET` | **Required** | `dev-fallback-csrf-secret...` | 32+ high-entropy random characters | Secret key used to generate HMAC-SHA256 user-bound anti-CSRF tokens. Must be $\ge 32$ chars in production. |
 | `ED25519_KEY_ID` | **Required** | `KEY_INTENTLOCK_DEV_V1` | Key identifier (e.g. `KEY_PROD_2026_V1`) | Key ID stamped in authorization records and signatures. |
 | `ED25519_PUBLIC_KEY`| **Required (Prod)** | Auto-generated dev keypair | 64-character lowercase hex string | 32-byte Ed25519 public key for verifying signed authorizations. |
-| `ED25519_PRIVATE_KEY`| **Required (Prod)** | Auto-generated dev keypair | 128-character lowercase hex string | 64-byte Ed25519 private key (seed + public) used by firewall to sign authorizations. |
+| `ED25519_PRIVATE_KEY`| **Required (Prod)** | Auto-generated dev keypair | 64-character lowercase hex seed or PKCS#8 PEM | Ed25519 private key used by firewall to sign authorizations; must match `ED25519_PUBLIC_KEY`. |
 | `USE_MOCK_SECURITY`| **Dev/Test Only** | `true` (dev default) | **STRICTLY FORBIDDEN (`false`)** | Invariant: If `true` when `NODE_ENV === 'production'`, boot fails closed immediately. |
 | `USE_MOCK_PAYPAL` | **Dev/Test Only** | `true` (dev default) | **STRICTLY FORBIDDEN (`false`)** | Invariant: If `true` when `NODE_ENV === 'production'`, boot fails closed immediately. |
-| `PAYPAL_ENVIRONMENT`| **Required** | `sandbox` | `sandbox` (for hackathon demo) or `live` | Target PayPal API gateway. |
-| `PAYPAL_CLIENT_ID`| **Required (Live PP)** | `""` | PayPal REST App Client ID | Client ID for OAuth2 token acquisition. |
-| `PAYPAL_CLIENT_SECRET`| **Required (Live PP)**| `""` | PayPal REST App Secret | Client secret for OAuth2 token acquisition. |
-| `PAYPAL_WEBHOOK_ID`| **Required (Live PP)**| `""` | Registered PayPal Webhook ID | Webhook identifier used in CRC32 transmission verification. |
+| `PAYPAL_ENVIRONMENT`| **Required** | `sandbox` | `sandbox` only | This integration rejects non-Sandbox API configuration; live payments are not supported. |
+| `PAYPAL_API_TIMEOUT_MS` | **Optional** | `10000` | Positive integer milliseconds | Bounds each PayPal OAuth/order request; retry only with the same `Idempotency-Key`. |
+| `PAYPAL_CLIENT_ID`| **Required for actual Sandbox calls** | `""` | Sandbox PayPal REST App Client ID | Used only for Sandbox OAuth2 token acquisition. |
+| `PAYPAL_CLIENT_SECRET`| **Required for actual Sandbox calls**| `""` | Sandbox PayPal REST App Secret | Used only for Sandbox OAuth2 token acquisition. |
+| `PAYPAL_WEBHOOK_ID`| **Required for real Sandbox webhook verification**| `""` | Webhook ID registered on the same Sandbox REST app as the configured client credentials | Passed with the event and PayPal transmission headers to the Sandbox `verify-webhook-signature` API. Required in every non-mock environment; without it webhook requests fail closed with HTTP 503. |
 | `AI_PROVIDER` | **Optional** | `offline_fixture` | `offline_fixture`, `gemini`, `openai`, or `anthropic` | AI search provider. |
 | `AI_API_KEY` | **Optional** | `""` | Provider API key | Required only if `AI_PROVIDER` is an external LLM. |
 | `AI_MODEL` | **Optional** | `gemini-1.5-pro` | Target LLM model name | Model identifier passed to AI SDK. |
@@ -193,19 +194,62 @@ server {
 
 ## 6. PayPal Sandbox Configuration
 
-1. Log into [PayPal Developer Dashboard](https://developer.paypal.com/dashboard/).
-2. Under **Apps & Credentials**, select **Sandbox**, and create an App named `IntentLock Commerce`.
-3. Copy:
-   - `Client ID` $\to$ `PAYPAL_CLIENT_ID`
-   - `Secret` $\to$ `PAYPAL_CLIENT_SECRET`
-4. Under **Webhooks**, register a new webhook:
-   - **URL:** `https://api.intentlock.app/api/payments/webhooks`
-   - **Event Types:**
-     - `PAYMENT.CAPTURE.COMPLETED`
-     - `PAYMENT.CAPTURE.DENIED`
-     - `CHECKOUT.ORDER.APPROVED`
-   - Copy generated `Webhook ID` $\to$ `PAYPAL_WEBHOOK_ID`.
-5. Under **Sandbox Accounts**, note the test personal buyer and business merchant login credentials.
+The committed service is Sandbox-only. It uses PayPal's Sandbox OAuth, Orders,
+and webhook-signature-verification endpoints. Live API endpoints are not
+supported. Capture is an explicit authenticated POST operation; it is disabled
+when `NODE_ENV=production` and is never initiated by order creation or webhook
+delivery.
+
+1. In the [PayPal Developer Dashboard](https://developer.paypal.com/dashboard/),
+   select **Sandbox** and create/select a Sandbox REST app. Copy that app's
+   **Client ID** and **Secret** into `PAYPAL_CLIENT_ID` and
+   `PAYPAL_CLIENT_SECRET` in the local secret store. Do not copy Live app values.
+2. Set `PAYPAL_ENVIRONMENT=sandbox` and `USE_MOCK_PAYPAL=false`. For a checkout
+   demonstration that exercises explicit capture, use a non-production runtime
+   such as `NODE_ENV=development`; production deliberately rejects capture.
+3. Configure `API_BASE_URL` to the backend's externally reachable HTTPS base,
+   including `/api` (for example `https://<your-public-host>/api`). PayPal
+   cannot deliver webhooks to `localhost` or a private LAN address. For a local
+   demo, expose the backend through a temporary HTTPS tunnel that forwards to
+   its listening port, and use that tunnel's HTTPS URL here. Configure
+   `APP_ORIGIN` to the reachable frontend origin.
+4. In the **same Sandbox REST app**, register a webhook at
+   `https://<your-public-host>/api/payments/webhooks`. Subscribe to
+   `PAYMENT.CAPTURE.COMPLETED`, `PAYMENT.CAPTURE.DENIED`, and
+   `PAYMENT.CAPTURE.REFUNDED`. Copy the Sandbox webhook's generated **Webhook
+   ID** to `PAYPAL_WEBHOOK_ID`. A placeholder or a webhook ID from a different
+   app/environment will not verify. This ID is required for real verification
+   even outside production; if absent, the service returns
+   `WEBHOOK_SIGNATURE_VERIFICATION_UNAVAILABLE` (503).
+5. Restart the backend after updating its environment. Confirm configuration
+   without printing values: Sandbox environment, Sandbox client ID/secret
+   present, mock adapter disabled, and the matching webhook ID present. Use a
+   Sandbox personal buyer account to approve the order; never use a real buyer
+   account.
+6. Submit the normal authenticated, CSRF-protected purchase request through
+   the parent BFF. Confirm IntentLock V2 authorization and persisted bindings
+   before order creation. Retry only with the same `Idempotency-Key`.
+7. After PayPal buyer approval, capture only through the authenticated,
+   CSRF-protected `POST /api/payments/capture-order`, with the order's persisted
+   authorization and a stable `Idempotency-Key`. Capture is not automatic.
+   Confirm the amount, currency, merchant, capture ID, and `COMPLETED` state in
+   both the Sandbox app and the MongoDB transaction record.
+8. Confirm PayPal delivers a signed event to the registered HTTPS URL and that
+   the service's call to PayPal's Sandbox
+   `POST /v1/notifications/verify-webhook-signature` returns `SUCCESS`. The
+   request includes the five `paypal-*` transmission headers mapped to
+   `auth_algo`, `cert_url`, `transmission_id`, `transmission_sig`, and
+   `transmission_time`, plus this app's `webhook_id` and the complete parsed
+   `webhook_event`. Redelivery of the same event ID must return
+   `ALREADY_PROCESSED` without applying a second transaction update.
+9. The current model handles full refunds; partial refunds are recorded as
+   unsupported and require manual reconciliation. `CHECKOUT.ORDER.APPROVED` is
+   not a supported state-changing event; buyer approval is checked from PayPal
+   when the explicit capture endpoint runs.
+10. Before deploying the single-authorization-per-idempotency-key index to an
+    existing database, reconcile any existing duplicate non-empty
+    `authorization_records.idempotencyKey` values. Startup intentionally fails
+    if MongoDB cannot create the unique index.
 
 ---
 

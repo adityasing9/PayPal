@@ -2,6 +2,45 @@ import { payPalService, PayPalPaymentError } from '../services/PayPalService.js'
 import { authService } from '../services/AuthService.js';
 import { User } from '../models/User.model.js';
 import { env } from '../config/env.js';
+import { intentLockPaymentService } from '../services/IntentLockPaymentService.js';
+
+export async function createIntentLockOrderController(req, res, next) {
+  try {
+    const idempotencyKey = req.headers['idempotency-key'];
+    if (
+      typeof idempotencyKey !== 'string' ||
+      idempotencyKey.length < 16 ||
+      idempotencyKey.length > 128 ||
+      !/^[A-Za-z0-9._:-]+$/.test(idempotencyKey)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'IDEMPOTENCY_KEY_REQUIRED',
+          message: 'A valid Idempotency-Key header is required.',
+          details: []
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const order = await intentLockPaymentService.createOrder({
+      proposalId: req.body.proposalId,
+      userConsent: req.body.userConsent,
+      acknowledgedReviewDiffs: req.body.acknowledgedReviewDiffs,
+      userId: req.user._id,
+      idempotencyKey
+    });
+
+    return res.status(201).json({
+      success: true,
+      data: order,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    next(err);
+  }
+}
 
 export async function createOrderController(req, res, next) {
   try {
@@ -190,7 +229,8 @@ export async function webhookController(req, res, next) {
       bodyObj: req.body
     });
 
-    return res.status(200).json(result);
+    const statusCode = result.status === 'FAILED' ? 500 : result.status === 'PROCESSING' ? 503 : 200;
+    return res.status(statusCode).json(result);
   } catch (err) {
     next(err);
   }

@@ -1,7 +1,53 @@
+import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { User } from '../models/User.model.js';
 import { verifyCsrfToken } from '../utils/cryptoUtils.js';
+
+export function requireInternalBff(req, res, next) {
+  const expected = env.PARENT_BFF_SECRET;
+  const supplied = req.headers['x-internal-service-key'];
+  if (!expected) {
+    return res.status(503).json({
+      success: false,
+      error: {
+        code: 'INTERNAL_BFF_NOT_CONFIGURED',
+        message: 'Parent backend service authentication is not configured.',
+        details: []
+      },
+      timestamp: new Date().toISOString()
+    });
+  }
+  if (typeof supplied !== 'string') {
+    return res.status(401).json({
+      success: false,
+      error: {
+        code: 'INTERNAL_SERVICE_AUTHENTICATION_REQUIRED',
+        message: 'A valid parent backend service credential is required.',
+        details: []
+      },
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  const expectedBytes = Buffer.from(expected);
+  const suppliedBytes = Buffer.from(supplied);
+  if (
+    expectedBytes.length !== suppliedBytes.length ||
+    !crypto.timingSafeEqual(expectedBytes, suppliedBytes)
+  ) {
+    return res.status(401).json({
+      success: false,
+      error: {
+        code: 'INTERNAL_SERVICE_AUTHENTICATION_REQUIRED',
+        message: 'A valid parent backend service credential is required.',
+        details: []
+      },
+      timestamp: new Date().toISOString()
+    });
+  }
+  return next();
+}
 
 /**
  * Authentication Middleware: enforces valid JWT session cookie and primary DB sessionVersion.

@@ -4,7 +4,7 @@ Configures application instances, registers security middleware, and binds route
 """
 
 from flask import Flask, Response
-from intentlock.workstream5_api_db.routes import build_api_blueprint
+from intentlock.workstream5_api_db.routes import build_api_blueprint, build_v2_api_blueprint
 
 def create_app(engine=None) -> Flask:
     app = Flask(__name__)
@@ -26,6 +26,7 @@ def create_app(engine=None) -> Flask:
 
     blueprint = build_api_blueprint(engine)
     app.register_blueprint(blueprint)
+    app.register_blueprint(build_v2_api_blueprint(engine))
 
     return app
 

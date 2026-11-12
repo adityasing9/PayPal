@@ -1,47 +1,122 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Member 3 Payment Orchestration & PayPal Handoff Contract",
-  "description": "Cryptographic authorization package issued by Member 2 to Member 3 for verification before invoking PayPal capture.",
+  "title": "IntentLock V2 Payment Authorization Handoff",
+  "description": "Signed purchase authorization verified by the nested Mongoose payment service before PayPal order creation. It does not authorize capture.",
   "type": "object",
   "required": [
     "protocol",
     "authorization_token",
     "public_key",
+    "token_id",
     "intent_id",
     "intent_hash",
+    "user_id",
+    "intent_version",
+    "proposal_id",
+    "snapshot_id",
+    "snapshot_hash",
+    "amount_minor",
+    "currency",
+    "minor_unit_exponent",
+    "merchant_id",
+    "paypal_merchant_id",
+    "purchase_hash",
     "nonce",
+    "issued_at",
     "expires_at"
   ],
   "properties": {
     "protocol": {
       "type": "string",
-      "const": "INTENTLOCK_V1_ED25519"
+      "const": "INTENTLOCK_V2_ED25519"
     },
     "authorization_token": {
       "type": "string",
-      "description": "Compact 3-segment token: base64url(header).base64url(claims).base64url(ed25519_signature)"
+      "description": "Three compact segments: base64url(protected header).base64url(JSON claims).base64url(Ed25519 signature); signature input is the ASCII protected-header segment, a dot, and the claims segment."
     },
     "public_key": {
       "type": "string",
-      "description": "32-byte Ed25519 public key in hexadecimal format."
+      "pattern": "^[0-9a-fA-F]{64}$",
+      "description": "Flask Ed25519 public key; the Mongoose service must compare it with its independently configured trust anchor."
+    },
+    "token_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
     },
     "intent_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{24}$"
     },
     "intent_hash": {
       "type": "string",
-      "description": "SHA-512 cryptographic commitment of the RFC 8785 canonical intent payload."
+      "pattern": "^[0-9a-f]{128}$",
+      "description": "SHA-512 digest from the Python engine's normalized intent serialization for audit. Payment interoperability uses purchase_hash and snapshot_hash instead."
+    },
+    "user_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{24}$"
+    },
+    "intent_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "proposal_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{24}$"
+    },
+    "snapshot_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{24}$"
+    },
+    "snapshot_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 of the RFC 8785 canonical immutable CheckoutSnapshot payload."
+    },
+    "amount_minor": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$",
+      "description": "Authorized amount as a canonical decimal integer string; must not exceed the Python safe-integer range."
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "minor_unit_exponent": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    },
+    "merchant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "paypal_merchant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "purchase_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{128}$",
+      "description": "SHA-512 of RFC 8785 canonical JSON for exactly user_id, intent_id, intent_version, proposal_id, snapshot_id, snapshot_hash, amount_minor, currency, minor_unit_exponent, merchant_id, and paypal_merchant_id."
     },
     "nonce": {
       "type": "string",
-      "description": "128-bit single-use monotonic nonce."
+      "pattern": "^[0-9a-f]{32}$",
+      "description": "Cryptographically random 128-bit nonce. The Mongoose service enforces single-use with a durable unique index."
+    },
+    "issued_at": {
+      "type": "integer",
+      "minimum": 0
     },
     "expires_at": {
-      "type": "number",
-      "description": "Unix timestamp after which the token is invalid (60-second window)."
+      "type": "integer",
+      "minimum": 0,
+      "description": "Unix timestamp; expires no more than 60 seconds after issued_at."
     },
     "verification_instruction": {
       "type": "string"
     }
-  }
+  },
+  "additionalProperties": false
 }

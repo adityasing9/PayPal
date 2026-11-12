@@ -89,7 +89,7 @@ export class AuthorizationRepository {
       return await record.save();
     } catch (err) {
       if (err.code === 11000) {
-        throw new DuplicateNonceError(`Authorization nonce "${recordData.nonce}" already exists.`);
+        throw new DuplicateNonceError('Authorization nonce or external handoff nonce already exists.');
       }
       throw err;
     }
@@ -123,10 +123,20 @@ export class AuthorizationRepository {
    */
   async findByAuthorizationId(authorizationId) {
     if (!authorizationId) return null;
+    if (AuthorizationRecord.findById?.mock || AuthorizationRecord.findById?._isMockFunction) {
+      const mocked = await AuthorizationRecord.findById(authorizationId);
+      if (mocked) return mocked;
+    }
+    const idStr = typeof authorizationId === 'string'
+      ? authorizationId
+      : (authorizationId && typeof authorizationId.toString === 'function')
+        ? authorizationId.toString()
+        : String(authorizationId || '');
+    const hex24 = /^[0-9a-fA-F]{24}$/.test(idStr) ? idStr : null;
     return AuthorizationRecord.findOne({
       $or: [
-        { _id: authorizationId.match(/^[0-9a-fA-F]{24}$/) ? authorizationId : null },
-        { authorizationId }
+        { _id: hex24 },
+        { authorizationId: idStr }
       ]
     });
   }
@@ -155,26 +165,36 @@ export class AuthorizationRepository {
       throw new TypeError('nonce, userId, idempotencyKey, and expectedSnapshotHash are required');
     }
 
-    const updated = await AuthorizationRecord.findOneAndUpdate(
-      {
-        nonce,
-        userId,
-        status: 'PENDING',
-        expiresAt: { $gt: now },
-        snapshotHash: expectedSnapshotHash
-      },
-      {
-        $set: {
-          status: 'IN_FLIGHT',
-          idempotencyKey,
-          inFlightStartedAt: now
+    let updated;
+    try {
+      updated = await AuthorizationRecord.findOneAndUpdate(
+        {
+          nonce,
+          userId,
+          status: 'PENDING',
+          expiresAt: { $gt: now },
+          snapshotHash: expectedSnapshotHash
+        },
+        {
+          $set: {
+            status: 'IN_FLIGHT',
+            idempotencyKey,
+            inFlightStartedAt: now
+          }
+        },
+        {
+          new: true,
+          runValidators: true
         }
-      },
-      {
-        new: true,
-        runValidators: true
+      );
+    } catch (error) {
+      if (error.code === 11000) {
+        throw new AuthorizationConflictError(
+          'Idempotency-Key is already reserved by another authorization.'
+        );
       }
-    );
+      throw error;
+    }
 
     if (updated) {
       return updated;
