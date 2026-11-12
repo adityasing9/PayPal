@@ -1,3 +1,4 @@
+
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { validateProductionConfig, env } from '../../src/config/env.js';
 import { SecurityFirewallService } from '../../src/services/SecurityFirewallService.js';
@@ -12,6 +13,39 @@ describe('SEC-07: Production Configuration & Keypair Hardening', () => {
     mismatchedKeyPair = generateEd25519KeyPair();
   });
 
+  // Provides all required production settings.
+  // Individual tests override only the setting they want to validate.
+  const productionConfig = (overrides = {}) => ({
+    NODE_ENV: 'production',
+
+    // PayPal Sandbox
+    PAYPAL_ENVIRONMENT: 'sandbox',
+    PAYPAL_CLIENT_ID: 'sandbox-test-client',
+    PAYPAL_CLIENT_SECRET: 'sandbox-test-secret',
+
+    // Mock adapters
+    USE_MOCK_SECURITY: false,
+    USE_MOCK_PAYPAL: false,
+
+    // Session and CSRF
+    SESSION_SECRET: 's'.repeat(32),
+    CSRF_SECRET: 'c'.repeat(32),
+
+    // Ed25519 signing keys
+    ED25519_PRIVATE_KEY: validKeyPair.privateKeyHex,
+    ED25519_PUBLIC_KEY: validKeyPair.publicKeyHex,
+    ED25519_KEY_ID: 'KEY_TEST_PROD_V1',
+
+    // Parent BFF authentication
+    PARENT_BFF_SECRET: 'b'.repeat(32),
+
+    // Flask IntentLock authentication
+    FLASK_INTENTLOCK_PUBLIC_KEY: 'a'.repeat(64),
+    FLASK_INTENTLOCK_SERVICE_TOKEN: 'f'.repeat(32),
+
+    ...overrides
+  });
+
   describe('validateProductionConfig', () => {
     it('ignores non-production environments', () => {
       expect(() => {
@@ -24,115 +58,89 @@ describe('SEC-07: Production Configuration & Keypair Hardening', () => {
 
     it('throws when USE_MOCK_SECURITY is true in production', () => {
       expect(() => {
-        validateProductionConfig({
-          NODE_ENV: 'production',
-          USE_MOCK_SECURITY: true
-        });
-      }).toThrow('SECURITY VIOLATION: USE_MOCK_SECURITY cannot be enabled in production.');
+        validateProductionConfig(
+          productionConfig({ USE_MOCK_SECURITY: true })
+        );
+      }).toThrow(
+        'SECURITY VIOLATION: USE_MOCK_SECURITY cannot be enabled in production.'
+      );
     });
 
     it('throws when USE_MOCK_PAYPAL is true in production', () => {
       expect(() => {
-        validateProductionConfig({
-          NODE_ENV: 'production',
-          USE_MOCK_SECURITY: false,
-          USE_MOCK_PAYPAL: true
-        });
-      }).toThrow('SECURITY VIOLATION: USE_MOCK_PAYPAL cannot be enabled in production.');
+        validateProductionConfig(
+          productionConfig({ USE_MOCK_PAYPAL: true })
+        );
+      }).toThrow(
+        'SECURITY VIOLATION: USE_MOCK_PAYPAL cannot be enabled in production.'
+      );
     });
 
     it('throws when SESSION_SECRET is too short in production', () => {
       expect(() => {
-        validateProductionConfig({
-          NODE_ENV: 'production',
-          USE_MOCK_SECURITY: false,
-          USE_MOCK_PAYPAL: false,
-          SESSION_SECRET: 'too-short'
-        });
-      }).toThrow('SECURITY VIOLATION: SESSION_SECRET must be at least 32 characters in production.');
+        validateProductionConfig(
+          productionConfig({ SESSION_SECRET: 'too-short' })
+        );
+      }).toThrow(
+        'SECURITY VIOLATION: SESSION_SECRET must be at least 32 characters in production.'
+      );
     });
 
     it('throws when CSRF_SECRET is too short in production', () => {
       expect(() => {
-        validateProductionConfig({
-          NODE_ENV: 'production',
-          USE_MOCK_SECURITY: false,
-          USE_MOCK_PAYPAL: false,
-          SESSION_SECRET: 'at-least-32-characters-session-secret!',
-          CSRF_SECRET: 'short'
-        });
-      }).toThrow('SECURITY VIOLATION: CSRF_SECRET must be at least 32 characters in production.');
+        validateProductionConfig(
+          productionConfig({ CSRF_SECRET: 'short' })
+        );
+      }).toThrow(
+        'SECURITY VIOLATION: CSRF_SECRET must be at least 32 characters in production.'
+      );
     });
 
     it('throws when ED25519_PRIVATE_KEY is missing or invalid in production', () => {
       expect(() => {
-        validateProductionConfig({
-          NODE_ENV: 'production',
-          USE_MOCK_SECURITY: false,
-          USE_MOCK_PAYPAL: false,
-          SESSION_SECRET: 'at-least-32-characters-session-secret!',
-          CSRF_SECRET: 'at-least-32-characters-csrf-secret!!!',
-          ED25519_PRIVATE_KEY: ''
-        });
-      }).toThrow('SECURITY VIOLATION: ED25519_PRIVATE_KEY must be a 64-char hex string or PKCS#8 PEM in production.');
+        validateProductionConfig(
+          productionConfig({ ED25519_PRIVATE_KEY: '' })
+        );
+      }).toThrow(
+        'SECURITY VIOLATION: ED25519_PRIVATE_KEY must be a 64-char hex string or PKCS#8 PEM in production.'
+      );
     });
 
     it('throws when ED25519_PUBLIC_KEY is missing or invalid in production', () => {
       expect(() => {
-        validateProductionConfig({
-          NODE_ENV: 'production',
-          USE_MOCK_SECURITY: false,
-          USE_MOCK_PAYPAL: false,
-          SESSION_SECRET: 'at-least-32-characters-session-secret!',
-          CSRF_SECRET: 'at-least-32-characters-csrf-secret!!!',
-          ED25519_PRIVATE_KEY: validKeyPair.privateKeyHex,
-          ED25519_PUBLIC_KEY: 'not-64-hex'
-        });
-      }).toThrow('SECURITY VIOLATION: ED25519_PUBLIC_KEY must be a 64-char hex string or SPKI PEM in production.');
+        validateProductionConfig(
+          productionConfig({ ED25519_PUBLIC_KEY: 'not-64-hex' })
+        );
+      }).toThrow(
+        'SECURITY VIOLATION: ED25519_PUBLIC_KEY must be a 64-char hex string or SPKI PEM in production.'
+      );
     });
 
     it('throws when ED25519_KEY_ID is missing in production', () => {
       expect(() => {
-        validateProductionConfig({
-          NODE_ENV: 'production',
-          USE_MOCK_SECURITY: false,
-          USE_MOCK_PAYPAL: false,
-          SESSION_SECRET: 'at-least-32-characters-session-secret!',
-          CSRF_SECRET: 'at-least-32-characters-csrf-secret!!!',
-          ED25519_PRIVATE_KEY: validKeyPair.privateKeyHex,
-          ED25519_PUBLIC_KEY: validKeyPair.publicKeyHex,
-          ED25519_KEY_ID: ''
-        });
-      }).toThrow('SECURITY VIOLATION: ED25519_KEY_ID must be configured in production.');
+        validateProductionConfig(
+          productionConfig({ ED25519_KEY_ID: '' })
+        );
+      }).toThrow(
+        'SECURITY VIOLATION: A valid non-retired ED25519_KEY_ID must be configured.'
+      );
     });
 
     it('throws when ED25519_PUBLIC_KEY does not match ED25519_PRIVATE_KEY in production', () => {
       expect(() => {
-        validateProductionConfig({
-          NODE_ENV: 'production',
-          USE_MOCK_SECURITY: false,
-          USE_MOCK_PAYPAL: false,
-          SESSION_SECRET: 'at-least-32-characters-session-secret!',
-          CSRF_SECRET: 'at-least-32-characters-csrf-secret!!!',
-          ED25519_PRIVATE_KEY: validKeyPair.privateKeyHex,
-          ED25519_PUBLIC_KEY: mismatchedKeyPair.publicKeyHex,
-          ED25519_KEY_ID: 'KEY_TEST_PROD_V1'
-        });
-      }).toThrow('SECURITY VIOLATION: ED25519_PUBLIC_KEY does not match ED25519_PRIVATE_KEY.');
+        validateProductionConfig(
+          productionConfig({
+            ED25519_PUBLIC_KEY: mismatchedKeyPair.publicKeyHex
+          })
+        );
+      }).toThrow(
+        'SECURITY VIOLATION: ED25519_PUBLIC_KEY does not match ED25519_PRIVATE_KEY.'
+      );
     });
 
     it('succeeds when all production parameters are valid and keypair matches', () => {
       expect(() => {
-        validateProductionConfig({
-          NODE_ENV: 'production',
-          USE_MOCK_SECURITY: false,
-          USE_MOCK_PAYPAL: false,
-          SESSION_SECRET: 'at-least-32-characters-session-secret!',
-          CSRF_SECRET: 'at-least-32-characters-csrf-secret!!!',
-          ED25519_PRIVATE_KEY: validKeyPair.privateKeyHex,
-          ED25519_PUBLIC_KEY: validKeyPair.publicKeyHex,
-          ED25519_KEY_ID: 'KEY_TEST_PROD_V1'
-        });
+        validateProductionConfig(productionConfig());
       }).not.toThrow();
     });
   });
@@ -160,6 +168,7 @@ describe('SEC-07: Production Configuration & Keypair Hardening', () => {
       env.ED25519_PUBLIC_KEY = '';
 
       const service = new SecurityFirewallService();
+
       expect(() => service.getKeyPair()).toThrow(
         'SECURITY VIOLATION: Ephemeral signing key generation prohibited in production.'
       );
@@ -170,6 +179,7 @@ describe('SEC-07: Production Configuration & Keypair Hardening', () => {
       env.ED25519_PUBLIC_KEY = mismatchedKeyPair.publicKeyHex;
 
       const service = new SecurityFirewallService();
+
       expect(() => service.getKeyPair()).toThrow(
         'SECURITY VIOLATION: Configured ED25519_PUBLIC_KEY does not match ED25519_PRIVATE_KEY.'
       );
@@ -181,6 +191,7 @@ describe('SEC-07: Production Configuration & Keypair Hardening', () => {
 
       const service = new SecurityFirewallService();
       const kp = service.getKeyPair();
+
       expect(kp.publicKeyHex).toBe(validKeyPair.publicKeyHex);
       expect(kp.privateKeyHex).toBe(validKeyPair.privateKeyHex);
     });

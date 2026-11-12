@@ -30,9 +30,22 @@ export const WebhookEventSchema = new Schema(
     },
     processedStatus: {
       type: String,
-      enum: ['PROCESSED', 'IGNORED', 'FAILED'],
-      default: 'PROCESSED',
+      enum: ['PROCESSING', 'PROCESSED', 'IGNORED', 'UNSUPPORTED', 'FAILED'],
+      default: 'PROCESSING',
       required: true
+    },
+    processingStartedAt: {
+      type: Date,
+      default: null
+    },
+    processedTransactionId: {
+      type: Schema.Types.ObjectId,
+      ref: 'PaymentTransaction',
+      default: null
+    },
+    failureReason: {
+      type: String,
+      default: null
     }
   },
   {

@@ -14,6 +14,14 @@ export const createOrderSchema = z.object({
   acknowledgedReviewDiffs: z.array(z.string()).default([])
 });
 
+export const intentLockCreateOrderSchema = z.object({
+  proposalId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Proposal ID must be a MongoDB ObjectId'),
+  userConsent: z.literal(true, {
+    errorMap: () => ({ message: 'userConsent must be explicitly set to true' })
+  }),
+  acknowledgedReviewDiffs: z.array(z.string().min(1)).max(32).default([])
+});
+
 /**
  * Schema for capturing an approved PayPal order.
  * Requires explicit buyer post-approval confirmation (SEC-03 Gate 3).

@@ -30,8 +30,8 @@ class TeamMemberContracts:
     @staticmethod
     def member3_handoff_contract(token: SignedAuthorizationToken) -> Dict[str, Any]:
         """Formats the cryptographic authorization handoff for Member 3."""
-        return {
-            "protocol": "INTENTLOCK_V1_ED25519",
+        handoff = {
+            "protocol": token.protocol,
             "authorization_token": token.compact_token,
             "public_key": token.public_key,
             "intent_id": token.intent_id,
@@ -39,10 +39,17 @@ class TeamMemberContracts:
             "nonce": token.nonce,
             "expires_at": token.expires_at,
             "verification_instruction": (
-                "Member 3 must verify compact_token using Ed25519 public_key "
-                "before initiating PayPal capture."
+                "Member 3 must verify compact_token using the pinned Ed25519 public key "
+                "and bind every signed purchase claim before creating a PayPal order. "
+                "This authorization does not permit capture."
             )
         }
+        if token.protocol == "INTENTLOCK_V2_ED25519":
+            handoff.update(token.binding_context)
+            handoff["token_id"] = token.token_id
+            handoff["purchase_hash"] = token.to_dict().get("purchase_hash")
+            handoff["issued_at"] = token.issued_at
+        return handoff
 
 
 class MockMember3PaymentOrchestrator:

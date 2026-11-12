@@ -1,15 +1,20 @@
 import { Router } from 'express';
 import {
   createOrderController,
+  createIntentLockOrderController,
   captureOrderController,
   returnHandlerController,
   recoverSessionController,
   webhookController
 } from '../controllers/payments.controller.js';
-import { requireAuth, requireCsrf } from '../middleware/auth.js';
+import { requireAuth, requireCsrf, requireInternalBff } from '../middleware/auth.js';
 import { paymentLimiter } from '../middleware/rateLimiter.js';
 import { validate } from '../middleware/validate.js';
-import { createOrderSchema, captureOrderSchema } from '../schemas/payment.schema.js';
+import {
+  createOrderSchema,
+  intentLockCreateOrderSchema,
+  captureOrderSchema
+} from '../schemas/payment.schema.js';
 
 const router = Router();
 
@@ -21,6 +26,16 @@ router.post(
   requireCsrf,
   validate(createOrderSchema),
   createOrderController
+);
+
+router.post(
+  '/intentlock/create-order',
+  paymentLimiter,
+  requireInternalBff,
+  requireAuth,
+  requireCsrf,
+  validate(intentLockCreateOrderSchema),
+  createIntentLockOrderController
 );
 
 // Order capture (Requires authentication, CSRF token, and Idempotency-Key. NEVER executed on GET)

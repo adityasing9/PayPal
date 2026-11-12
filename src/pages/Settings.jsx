@@ -79,7 +79,7 @@ function Settings() {
   };
 
   const Toggle = ({ checked, onChange, label, description }) => (
-    
+
     <div className="flex items-center justify-between gap-4 py-4">
       <div>
         <p className="text-sm font-semibold text-slate-800">{label}</p>
@@ -269,7 +269,7 @@ function Settings() {
           </div>
 
           <div className="divide-y divide-slate-100">
-            
+
             <Toggle
               label="Strict Mode"
               description="Apply stricter security rules before allowing purchases."

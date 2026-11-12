@@ -144,6 +144,16 @@ describe('Step 2.4.2: AuthorizationRepository (Atomic Nonce Management)', () => 
       );
     });
 
+    it('rejects a second authorization racing to reserve the same idempotency key', async () => {
+      const duplicateError = new Error('duplicate idempotency key');
+      duplicateError.code = 11000;
+      vi.spyOn(AuthorizationRecord, 'findOneAndUpdate').mockRejectedValueOnce(duplicateError);
+
+      await expect(repository.claimNonce(validParams)).rejects.toThrow(
+        AuthorizationConflictError
+      );
+    });
+
     it('supports idempotent retry: returns existing record if already IN_FLIGHT with same idempotencyKey', async () => {
       // findOneAndUpdate returns null (not in PENDING)
       vi.spyOn(AuthorizationRecord, 'findOneAndUpdate').mockResolvedValueOnce(null);

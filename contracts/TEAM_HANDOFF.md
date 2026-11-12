@@ -105,111 +105,51 @@ else:
 
 ## 4. Integration for Member 3 (Payment Orchestration / PayPal)
 
-Member 3 receives the cryptographic handoff package from Member 1 / Member 2:
-- **Schema:** [`member3_paypal_handoff_contract.json`](./member3_paypal_handoff_contract.json)
-- **Shared Test Vectors:** [`test_vectors_interop_v1.json`](./test_vectors_interop_v1.json)
-- **Token Structure:** `base64url(header).base64url(claims).base64url(ed25519_signature)`
-- **Claims Format:** `token_id:intent_id:intent_hash:nonce:issued_at:expires_at` (colon-delimited UTF-8 string with integer Unix epoch seconds)
-- **Signatures:** Standard RFC 8032 Ed25519; verified natively via Node.js `crypto.verify()`.
+The implemented payment boundary uses **INTENTLOCK_V2_ED25519**. The parent
+Express backend is a BFF proxy; the nested Mongoose backend owns session
+authentication, authoritative purchase lookup, token verification, durable
+single-use redemption, and PayPal order creation.
 
-### Verification Logic Before Calling PayPal Capture:
+- **Normative handoff schema:** [`member3_paypal_handoff_contract.json`](./member3_paypal_handoff_contract.json)
+- **V2 shared hash vector:** [`test_vectors_interop_v2.json`](./test_vectors_interop_v2.json)
+- **V1 vectors (legacy only):** [`test_vectors_interop_v1.json`](./test_vectors_interop_v1.json)
+- **Token:** three compact segments containing a protected header, JSON claims,
+  and Ed25519 signature. V2 signs the ASCII `headerSegment.claimsSegment`.
+- **Required signed bindings:** authenticated user, intent and version, proposal,
+  snapshot ID and SHA-256 snapshot hash, amount in minor units, currency and
+  exponent, merchant and PayPal merchant.
+- **Purchase commitment:** `purchase_hash` is SHA-512 of RFC 8785 canonical JSON
+  for the exact binding object listed in the JSON schema. The Node verifier
+  recomputes and compares it.
+- **Expiry and replay:** 128-bit random nonce; maximum 60-second validity.
+  The Node service persists the external nonce on the authorization record with
+  a unique MongoDB index before returning PASS.
+- **V1 tokens:** remain available only on the legacy Flask endpoint. The payment
+  order path rejects V1 and requires V2.
 
-#### Node.js Verification (Native `crypto` - Zero External Dependencies):
-```javascript
-const crypto = require('crypto');
+The parent `POST /api/payments/create-order` forwards the nested
+`intentlock_session` cookie, `X-CSRF-Token`, and `Idempotency-Key`. Its request
+contains only `proposalId`, `userConsent`, and `acknowledgedReviewDiffs`; clients
+cannot submit an authorization ID, amount, currency, merchant, intent, or
+snapshot as authority. The nested service builds the Flask payload from
+MongoDB-backed records and the verified catalog.
 
-/**
- * Verifies an IntentLock Ed25519 compact authorization token.
- * @param {string} compactToken - base64url(header).base64url(claims).base64url(signature)
- * @param {string} trustedPublicKeyHex - 64-character hex public key from Member 2
- * @returns {{ valid: boolean, claims?: object, reason?: string }}
- */
-function verifyIntentLockToken(compactToken, trustedPublicKeyHex) {
-  if (!compactToken || typeof compactToken !== 'string') {
-    return { valid: false, reason: 'Missing or malformed token' };
-  }
+The sequence is:
+1. Authenticate and validate the user's session and CSRF token in the nested API.
+2. Load the user's intent, associated proposal, and immutable snapshot; verify
+   proposal/snapshot equality, snapshot SHA-256, line-item and fee arithmetic,
+   currency denomination, and catalog merchant.
+3. Request an INTENTLOCK V2 authorization from Flask over the service-authenticated
+   internal connection.
+4. Verify the pinned Ed25519 signature, the V2 protocol and expiry, all database
+   bindings, and the recomputed SHA-512 purchase commitment.
+5. Run the existing Mongoose firewall, persist its signed authorization and the
+   external token/nonce atomically under MongoDB uniqueness constraints, then
+   create an order using only the persisted amount, currency, and PayPal payee.
 
-  const parts = compactToken.split('.');
-  if (parts.length !== 3) {
-    return { valid: false, reason: 'Invalid compact token segment count' };
-  }
-
-  const claimsBuffer = Buffer.from(parts[1], 'base64url');
-  const signatureBuffer = Buffer.from(parts[2], 'base64url');
-
-  if (signatureBuffer.length !== 64) {
-    return { valid: false, reason: 'Signature must be exactly 64 bytes' };
-  }
-
-  // Wrap raw 32-byte Ed25519 public key in standard RFC 8410 SPKI DER envelope
-  const spkiPrefix = Buffer.from('302a300506032b6570032100', 'hex');
-  const pubKeyBytes = Buffer.from(trustedPublicKeyHex, 'hex');
-  const spkiKey = Buffer.concat([spkiPrefix, pubKeyBytes]);
-
-  const keyObj = crypto.createPublicKey({
-    key: spkiKey,
-    format: 'der',
-    type: 'spki'
-  });
-
-  // Verify signature with null digest algorithm (RFC 8032 PureEdDSA)
-  const isSignatureValid = crypto.verify(null, claimsBuffer, keyObj, signatureBuffer);
-  if (!isSignatureValid) {
-    return { valid: false, reason: 'Ed25519 cryptographic signature mismatch' };
-  }
-
-  // Parse colon-delimited claims
-  const claimsStr = claimsBuffer.toString('utf8');
-  const [tokenId, intentId, intentHash, nonce, issuedAt, expiresAt] = claimsStr.split(':');
-  const now = Math.floor(Date.now() / 1000);
-
-  if (now > parseInt(expiresAt, 10)) {
-    return { valid: false, reason: 'Token validity window expired' };
-  }
-
-  return {
-    valid: true,
-    claims: {
-      tokenId,
-      intentId,
-      intentHash,
-      nonce,
-      issuedAt: parseInt(issuedAt, 10),
-      expiresAt: parseInt(expiresAt, 10)
-    }
-  };
-}
-
-// Example usage in Member 3 PayPal orchestrator:
-const TRUSTED_PUBLIC_KEY = process.env.INTENTLOCK_PUBLIC_KEY || "4df93f582d2b31f519c1982bb55c1aa46b4d64498fa04164eeb36c44c0f1cca9";
-const token = handoffPackage.authorization_token;
-const check = verifyIntentLockToken(token, TRUSTED_PUBLIC_KEY);
-
-if (!check.valid) {
-  throw new Error(`Security Violation: ${check.reason}. Refusing PayPal capture!`);
-}
-
-// Proceed safely with PayPal capture using check.claims.intentId
-await capturePayPalOrder(check.claims.intentId);
-```
-
-#### Python Verification Example:
-```python
-from intentlock.workstream4_crypto_auth.signer import Ed25519Signer
-
-# Read public key
-with open("keys/intentlock_public_key.hex") as f:
-    public_key_hex = f.read().strip()
-
-compact_token = handoff["authorization_token"]
-is_valid, claims = Ed25519Signer.verify_compact_token(compact_token, public_key_hex)
-
-if not is_valid:
-    raise SecurityError("IntentLock cryptographic token forgery detected! Refusing PayPal capture.")
-
-# Proceed with PayPal Capture
-paypal_capture(order_id=claims["intent_id"], amount=authorized_amount)
-```
+This authorization permits **order creation only**. PayPal capture remains
+disabled until a separately reviewed settlement protocol is implemented and
+validated. No V1 token or browser return is capture authority.
 
 ---
 

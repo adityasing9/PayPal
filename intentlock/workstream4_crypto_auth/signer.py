@@ -8,9 +8,13 @@ import hashlib
 import secrets
 import base64
 import time
-from typing import Tuple, Optional
+import json
+import math
+from typing import Tuple, Optional, Dict, Any
 from intentlock.core.models import SignedAuthorizationToken
 from intentlock.core.errors import CryptographicSignatureError
+from intentlock.core.config import config, clean_hex_string
+from intentlock.workstream4_crypto_auth.canonicalizer import Canonicalizer
 
 # --- RFC 8032 Curve25519 / Ed25519 Parameters ---
 _q = 2**255 - 19
@@ -179,29 +183,59 @@ class Ed25519Signer:
                                   intent_id: str,
                                   intent_hash: str,
                                   nonce: str,
-                                  validity_seconds: int = 60) -> SignedAuthorizationToken:
+                                  validity_seconds: Optional[int] = None,
+                                  binding_context: Optional[Dict[str, Any]] = None) -> SignedAuthorizationToken:
         """
         Creates a signed IntentLock authorization token for a verified commerce intent.
         Timestamps are integer Unix epoch seconds for cross-language determinism.
         """
+        effective_validity = validity_seconds if validity_seconds is not None else config.TOKEN_VALIDITY_WINDOW_SECONDS
         issued_at = int(time.time())
-        expires_at = issued_at + validity_seconds
+        expires_at = issued_at + effective_validity
         token_id = secrets.token_hex(16)
 
-        # Structure payload to be signed (colon-separated, integer timestamps)
-        claims = f"{token_id}:{intent_id}:{intent_hash}:{nonce}:{issued_at}:{expires_at}"
-        claims_bytes = claims.encode('utf-8')
+        protocol = "INTENTLOCK_V1_ED25519"
+        purchase_hash = ""
+        signed_message: bytes
+        if binding_context is not None:
+            protocol = "INTENTLOCK_V2_ED25519"
+            purchase_hash = Canonicalizer.hash_intent_sha512(
+                Canonicalizer.canonicalize(binding_context)
+            )
+            claims_dict = {
+                "protocol": protocol,
+                "token_id": token_id,
+                "intent_id": intent_id,
+                "intent_hash": intent_hash,
+                **binding_context,
+                "purchase_hash": purchase_hash,
+                "nonce": nonce,
+                "issued_at": issued_at,
+                "expires_at": expires_at
+            }
+            claims_bytes = json.dumps(
+                claims_dict,
+                ensure_ascii=False,
+                separators=(",", ":")
+            ).encode("utf-8")
+            header = b'{"alg":"Ed25519","typ":"INTENTLOCK-AUTH","v":2}'
+            header_segment = _b64url_encode(header)
+            claims_segment = _b64url_encode(claims_bytes)
+            signed_message = f"{header_segment}.{claims_segment}".encode("ascii")
+            compact_token = f"{header_segment}.{claims_segment}.{_b64url_encode(self.sign_message(signed_message))}"
+        else:
+            # V1 remains unchanged for existing callers.
+            claims = f"{token_id}:{intent_id}:{intent_hash}:{nonce}:{issued_at}:{expires_at}"
+            claims_bytes = claims.encode('utf-8')
+            header = b'{"alg":"Ed25519","typ":"INTENTLOCK-AUTH"}'
+            compact_token = (
+                f"{_b64url_encode(header)}."
+                f"{_b64url_encode(claims_bytes)}."
+                f"{_b64url_encode(self.sign_message(claims_bytes))}"
+            )
 
-        sig_bytes = self.sign_message(claims_bytes)
+        sig_bytes = _b64url_decode(compact_token.split(".")[2])
         sig_hex = sig_bytes.hex()
-
-        # Build compact URL-safe token format: header.payload.signature
-        header = b'{"alg":"Ed25519","typ":"INTENTLOCK-AUTH"}'
-        compact_token = (
-            f"{_b64url_encode(header)}."
-            f"{_b64url_encode(claims_bytes)}."
-            f"{_b64url_encode(sig_bytes)}"
-        )
 
         return SignedAuthorizationToken(
             token_id=token_id,
@@ -213,41 +247,147 @@ class Ed25519Signer:
             signature=sig_hex,
             public_key=self.public_key_hex,
             algorithm="Ed25519",
-            compact_token=compact_token
+            compact_token=compact_token,
+            protocol=protocol,
+            binding_context=binding_context or {},
+            purchase_hash=purchase_hash
         )
 
     @staticmethod
-    def verify_compact_token(compact_token: str, public_key_hex: str) -> Tuple[bool, Optional[dict]]:
+    def verify_compact_token(compact_token: str,
+                             public_key_hex: str,
+                             enforce_expiry: bool = True,
+                             clock_skew_leeway: Optional[int] = None,
+                             current_time: Optional[float] = None,
+                             max_lifetime_seconds: int = 3600) -> Tuple[bool, Optional[dict]]:
         """
-        Validates a compact token string and returns parsed claims if valid.
+        Validates an Ed25519 compact authorization token string and returns parsed claims if valid.
+
+        Strict Verification Invariants:
+        1. Token structure: exactly 3 dot-delimited non-empty base64url segments (header.claims.sig).
+        2. Public key format: exactly 64 hex characters (32 bytes).
+        3. Header integrity: JSON object with alg === 'Ed25519' and typ === 'INTENTLOCK-AUTH'.
+        4. Signature length: exactly 64 raw bytes.
+        5. Cryptographic signature: Ed25519 (RFC 8032 PureEdDSA) over claims bytes.
+        6. Claims integrity: exactly 6 non-empty colon-separated fields (token_id, intent_id, intent_hash, nonce, issued_at, expires_at).
+        7. Strict expiration & timestamp lifetime:
+           - now > expires_at + clock_skew_leeway -> rejected (expired)
+           - issued_at > now + clock_skew_leeway -> rejected (future timestamp manipulation)
+           - expires_at <= issued_at -> rejected (invalid duration)
+           - (expires_at - issued_at) > max_lifetime_seconds -> rejected (far-future lifetime injection)
         """
+        if not compact_token or not isinstance(compact_token, str):
+            return False, None
+
+        parts = compact_token.strip().split('.')
+        if len(parts) != 3 or any(len(p) == 0 for p in parts):
+            return False, None
+
+        cleaned_pk = clean_hex_string(public_key_hex)
+        if not cleaned_pk or len(cleaned_pk) != 64:
+            return False, None
+
         try:
-            parts = compact_token.split('.')
-            if len(parts) != 3:
+            # 1. Header integrity check
+            header_bytes = _b64url_decode(parts[0])
+            header_dict = json.loads(header_bytes.decode('utf-8'))
+            if header_dict.get("alg") != "Ed25519" or header_dict.get("typ") != "INTENTLOCK-AUTH":
                 return False, None
 
-            header_bytes = _b64url_decode(parts[0])
-            claims_bytes = _b64url_decode(parts[1])
+            # 2. Signature length check
             sig_bytes = _b64url_decode(parts[2])
+            if len(sig_bytes) != 64:
+                return False, None
 
-            pk_bytes = bytes.fromhex(public_key_hex)
+            # V2 binds the protected header as well as the exact JSON claims bytes.
+            claims_bytes = _b64url_decode(parts[1])
+            pk_bytes = bytes.fromhex(cleaned_pk)
+            if header_dict.get("v") == 2:
+                if (
+                    _b64url_encode(header_bytes) != parts[0] or
+                    _b64url_encode(claims_bytes) != parts[1] or
+                    not _verify_raw(
+                        sig_bytes,
+                        f"{parts[0]}.{parts[1]}".encode("ascii"),
+                        pk_bytes
+                    )
+                ):
+                    return False, None
+
+                claims = json.loads(claims_bytes.decode("utf-8"))
+                if (
+                    not isinstance(claims, dict) or
+                    claims.get("protocol") != "INTENTLOCK_V2_ED25519" or
+                    not isinstance(claims.get("token_id"), str) or
+                    not isinstance(claims.get("intent_id"), str) or
+                    not isinstance(claims.get("intent_hash"), str) or
+                    not isinstance(claims.get("purchase_hash"), str) or
+                    not isinstance(claims.get("nonce"), str) or
+                    len(claims["nonce"]) != 32 or
+                    any(ch not in "0123456789abcdef" for ch in claims["nonce"]) or
+                    not isinstance(claims.get("issued_at"), int) or
+                    not isinstance(claims.get("expires_at"), int)
+                ):
+                    return False, None
+
+                issued_at = claims["issued_at"]
+                expires_at = claims["expires_at"]
+                if (
+                    expires_at <= issued_at or
+                    expires_at - issued_at > max_lifetime_seconds
+                ):
+                    return False, None
+                if enforce_expiry:
+                    leeway = clock_skew_leeway if clock_skew_leeway is not None else config.MAX_CLOCK_SKEW_SECONDS
+                    now = current_time if current_time is not None else time.time()
+                    if now > expires_at + leeway or issued_at > now + leeway:
+                        return False, None
+                return True, claims
+
             if not _verify_raw(sig_bytes, claims_bytes, pk_bytes):
                 return False, None
 
+            # 4. Claims structure check
             claims_str = claims_bytes.decode('utf-8')
-            token_id, intent_id, intent_hash, nonce, issued_at, expires_at = claims_str.split(':')
+            claim_parts = claims_str.split(':')
+            if len(claim_parts) != 6 or any(len(p.strip()) == 0 for p in claim_parts):
+                return False, None
 
-            # Parse timestamps (supports both integer and float for backward compatibility)
-            def _parse_ts(s):
-                return int(s) if '.' not in s else float(s)
+            token_id, intent_id, intent_hash, nonce, raw_issued, raw_expires = claim_parts
+
+            def _parse_ts(s: str) -> float:
+                val = int(s) if '.' not in s else float(s)
+                if math.isnan(val) or math.isinf(val):
+                    raise ValueError("NaN/Inf timestamp")
+                return val
+
+            issued_at = _parse_ts(raw_issued)
+            expires_at = _parse_ts(raw_expires)
+
+            # Inverted timestamp check
+            if expires_at <= issued_at:
+                return False, None
+
+            # Far-future lifetime injection defense (e.g. 10-year validity exploit)
+            if (expires_at - issued_at) > max_lifetime_seconds:
+                return False, None
+
+            # 5. Token expiry and future timestamp manipulation check
+            if enforce_expiry:
+                leeway = clock_skew_leeway if clock_skew_leeway is not None else config.MAX_CLOCK_SKEW_SECONDS
+                now = current_time if current_time is not None else time.time()
+                if now > (expires_at + leeway):
+                    return False, None
+                if issued_at > (now + leeway):
+                    return False, None
 
             return True, {
                 "token_id": token_id,
                 "intent_id": intent_id,
                 "intent_hash": intent_hash,
                 "nonce": nonce,
-                "issued_at": _parse_ts(issued_at),
-                "expires_at": _parse_ts(expires_at)
+                "issued_at": issued_at,
+                "expires_at": expires_at
             }
         except Exception:
             return False, None

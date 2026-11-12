@@ -191,7 +191,7 @@ src/
 +-- context/
 +-- pages/
 +-- App.jsx
-+-- index.css 
++-- index.css
 
 ## API Integration
 
@@ -203,4 +203,3 @@ The frontend uses Axios-based API modules for:
 - Payments
 - Proposals
 - Security
-
