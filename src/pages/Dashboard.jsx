@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 
 import {
   ShoppingBag,
-  IndianRupee,
+  DollarSign,
   ShieldCheck,
   ShieldAlert,
   ArrowUpRight,
@@ -70,9 +70,9 @@ function Dashboard() {
     },
     {
       title: "Money Protected",
-      value: 18500,
-      prefix: "₹",
-      icon: IndianRupee,
+      value: 1850,
+      prefix: "$",
+      icon: DollarSign,
       color: "green",
       change: "Protected amount",
       trend: "up",

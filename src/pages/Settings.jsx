@@ -7,7 +7,7 @@ import {
   Bell,
   LockKeyhole,
   Save,
-  IndianRupee,
+  DollarSign,
   Mail,
   UserRound,
   Info,
@@ -20,8 +20,8 @@ function Settings() {
     email: "",
   });
 
-  const [budget, setBudget] = useState("5000");
-  const [currency, setCurrency] = useState("INR");
+  const [budget, setBudget] = useState("120");
+  const [currency, setCurrency] = useState("USD");
 
   const [security, setSecurity] = useState({
     confirmPurchase: true,
@@ -206,7 +206,7 @@ function Settings() {
                 Default Shopping Budget
               </label>
               <div className="relative">
-                <IndianRupee
+                <DollarSign
                   size={17}
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
                 />
@@ -238,8 +238,8 @@ function Settings() {
                 }}
                 className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-400"
               >
-                <option value="INR">INR - Indian Rupee (₹)</option>
                 <option value="USD">USD - US Dollar ($)</option>
+                <option value="INR">INR - Indian Rupee (₹)</option>
                 <option value="EUR">EUR - Euro (€)</option>
                 <option value="NPR">NPR - Nepalese Rupee (रु)</option>
               </select>
