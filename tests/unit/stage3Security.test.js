@@ -518,6 +518,23 @@ describe('Stage 3 Security Remediation: SEC-03, SEC-04, SEC-05, SEC-06, SEC-10',
       );
     });
 
+    it('Rejects capture response when amount has more fractional precision than the transaction allows', () => {
+      const captureObj = {
+        id: 'CAP_AMOUNT_OVERPRECISE',
+        status: 'COMPLETED',
+        amount: { currency_code: 'USD', value: '117.900' }
+      };
+
+      expect(() => {
+        payPalService.validateCaptureResponse(captureObj, baseTx);
+      }).toThrow(
+        expect.objectContaining({
+          code: 'MALFORMED_CAPTURE_RESPONSE',
+          statusCode: 502
+        })
+      );
+    });
+
     it('Rejects capture response when capture object is null or missing', () => {
       expect(() => {
         payPalService.validateCaptureResponse(null, baseTx);

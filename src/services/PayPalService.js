@@ -90,6 +90,11 @@ function verifyPersistedAuthorization(authRecord, {
       merchant_id: externalAuthorization.merchantId,
       paypal_merchant_id: authRecord.paypalMerchantId
     };
+    const nowSeconds = Math.floor(now.getTime() / 1000);
+    const externalExpirySeconds = Number(externalAuthorization.expiresAt);
+    const verificationNowSeconds = allowExpiredExternal && Number.isFinite(externalExpirySeconds)
+      ? Math.min(nowSeconds, externalExpirySeconds)
+      : nowSeconds;
     try {
       verifyIntentLockV2Handoff(
         {
@@ -106,9 +111,7 @@ function verifyPersistedAuthorization(authRecord, {
         },
         expectedBindings,
         {
-          nowSeconds: allowExpiredExternal
-            ? externalAuthorization.issuedAt
-            : Math.floor(now.getTime() / 1000),
+          nowSeconds: verificationNowSeconds,
           publicKey: env.FLASK_INTENTLOCK_PUBLIC_KEY
         }
       );
@@ -845,7 +848,6 @@ export class PayPalService {
       );
     }
 
-    // 1. Settlement Status Verification
     if (captureObj.status !== 'COMPLETED') {
       throw new PayPalPaymentError(
         `PayPal capture settlement status was not COMPLETED: "${captureObj.status}".`,
@@ -854,7 +856,6 @@ export class PayPalService {
       );
     }
 
-    // 2. Currency Code Verification
     const captureCurrency = captureObj.amount?.currency_code?.toUpperCase();
     const expectedCurrency = tx.currency?.toUpperCase();
     if (!captureCurrency || captureCurrency !== expectedCurrency) {
@@ -865,9 +866,8 @@ export class PayPalService {
       );
     }
 
-    // 3. Monetary Value Exact Minor Unit Verification (Integer Math)
     const captureValueStr = captureObj.amount?.value;
-    if (captureValueStr === undefined || captureValueStr === null) {
+    if (captureValueStr === undefined || captureValueStr === null || typeof captureValueStr !== 'string') {
       throw new PayPalPaymentError(
         'Malformed PayPal capture response: missing amount value.',
         'MALFORMED_CAPTURE_RESPONSE',
@@ -875,13 +875,36 @@ export class PayPalService {
       );
     }
 
-    const exponent = tx.minorUnitExponent || 2;
-    const parts = captureValueStr.toString().split('.');
-    const whole = BigInt(parts[0] || '0');
-    const fracStr = (parts[1] || '').padEnd(exponent, '0').slice(0, exponent);
-    const frac = BigInt(fracStr || '0');
+    const exponent = Number(tx.minorUnitExponent || 2);
+    if (!Number.isInteger(exponent) || exponent < 0 || exponent > 3) {
+      throw new PayPalPaymentError(
+        'Transaction minor-unit precision is invalid.',
+        'MALFORMED_CAPTURE_RESPONSE',
+        502
+      );
+    }
+
+    if (!/^(0|[1-9][0-9]*)(?:\.([0-9]+))?$/.test(captureValueStr)) {
+      throw new PayPalPaymentError(
+        `Malformed PayPal capture amount value "${captureValueStr}".`,
+        'MALFORMED_CAPTURE_RESPONSE',
+        502
+      );
+    }
+
+    const [wholePart, fractionPart = ''] = captureValueStr.split('.');
+    if (fractionPart.length > exponent) {
+      throw new PayPalPaymentError(
+        `PayPal capture amount "${captureValueStr}" exceeds the transaction currency precision of ${exponent} decimal places.`,
+        'MALFORMED_CAPTURE_RESPONSE',
+        502
+      );
+    }
+
+    const whole = BigInt(wholePart || '0');
+    const fraction = BigInt((fractionPart || '').padEnd(exponent, '0').slice(0, exponent) || '0');
     const factor = 10n ** BigInt(exponent);
-    const capturedAmountMinor = whole * factor + frac;
+    const capturedAmountMinor = whole * factor + fraction;
 
     if (capturedAmountMinor !== tx.amountMinor) {
       throw new PayPalPaymentError(
@@ -1388,7 +1411,7 @@ export class PayPalService {
    * }} params
    * @returns {Promise<object>}
    */
-  async recoverReturnSession({ orderId, returnToken, userId: _userId, now = new Date() }) {
+  async recoverReturnSession({ orderId, returnToken, userId, now = new Date() }) {
     const tx = await paymentTransactionRepository.findByOrderId(orderId);
     if (!tx) {
       throw new PayPalPaymentError(
@@ -1398,12 +1421,13 @@ export class PayPalService {
       );
     }
 
-    // Atomically consume return token
+    const expectedUserId = userId ?? tx.userId;
+
     try {
       await paymentTransactionRepository.consumeReturnToken({
         returnToken,
         transactionId: tx._id,
-        userId: tx.userId,
+        userId: expectedUserId,
         paypalOrderId: orderId,
         now
       });

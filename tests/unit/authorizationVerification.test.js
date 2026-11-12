@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import mongoose from 'mongoose';
 import { PayPalService } from '../../src/services/PayPalService.js';
+import * as intentLockVerifier from '../../src/utils/intentLockV2Verifier.js';
 import { AuditLog } from '../../src/models/AuditLog.model.js';
 import { trustedKeyRegistry } from '../../src/services/TrustedKeyRegistry.js';
 import { authorizationRepository } from '../../src/repositories/AuthorizationRepository.js';
@@ -179,6 +180,58 @@ describe('SEC-01 & SEC-09: Cryptographic Authorization Verification & Key Regist
       const result = await payPalService.createOrder(validOrderParams);
       expect(result).toBeDefined();
       expect(result.orderId).toBeDefined();
+    });
+
+    it('rejects expired external authorization even for duplicate-order recovery bypass checks', async () => {
+      const expiredExternal = {
+        protocol: 'INTENTLOCK_V2_ED25519',
+        compactToken: 'AAAA.BBBB.CCCC',
+        merchantId: 'PPM_VERIFIED_MERCHANT_1',
+        tokenId: 'a'.repeat(32),
+        intentHash: 'b'.repeat(128),
+        purchaseHash: 'c'.repeat(128),
+        nonce: generateNonce(32),
+        issuedAt: Math.floor((now.getTime() - 120000) / 1000),
+        expiresAt: Math.floor((now.getTime() - 1000) / 1000),
+        publicKey: activeKeyPair.publicKeyHex
+      };
+
+      const existingAuth = {
+        ...baseAuthRecord,
+        externalAuthorization: expiredExternal,
+        userId: baseAuthRecord.userId,
+        proposalId: baseAuthRecord.proposalId,
+        snapshotHash: baseAuthRecord.snapshotHash,
+        authorizedAmountMinor: 15000n,
+        currency: 'USD',
+        minorUnitExponent: 2,
+        paypalMerchantId: 'PPM_VERIFIED_MERCHANT_1'
+      };
+
+      const existingTx = {
+        _id: new mongoose.Types.ObjectId(),
+        userId: baseAuthRecord.userId,
+        authorizationId: existingAuth._id,
+        proposalId: existingAuth.proposalId,
+        idempotencyKey: validOrderParams.idempotencyKey,
+        paypalOrderId: 'ORDER_EXPIRED_EXTERNAL_1',
+        amountMinor: 15000n,
+        currency: 'USD',
+        status: 'CREATED',
+        paypalCaptureId: null
+      };
+
+      vi.spyOn(paymentTransactionRepository, 'findByIdempotencyKey').mockResolvedValue(existingTx);
+      vi.spyOn(authorizationRepository, 'findByAuthorizationId').mockResolvedValue(existingAuth);
+      vi.spyOn(intentLockVerifier, 'verifyIntentLockV2Handoff').mockImplementation((handoff, expectedBindings, options) => {
+        expect(options.nowSeconds).toBe(Math.floor(now.getTime() / 1000));
+        throw new Error('expired external auth should be rejected');
+      });
+
+      await expect(payPalService.createOrder(validOrderParams)).rejects.toMatchObject({
+        code: 'INVALID_INTENTLOCK_V2_AUTHORIZATION',
+        statusCode: 403
+      });
     });
   });
 
