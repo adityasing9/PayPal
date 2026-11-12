@@ -15,8 +15,10 @@ import {
   generateNonce,
   signMessage,
   verifySignature,
-  generateEd25519KeyPair
+  generateEd25519KeyPair,
+  validateEd25519KeyPair
 } from '../utils/cryptoUtils.js';
+import { trustedKeyRegistry } from './TrustedKeyRegistry.js';
 
 // Verified merchant to PayPal merchant ID directory
 export const VERIFIED_MERCHANTS = {
@@ -176,13 +178,16 @@ export class SecurityFirewallService {
         throw new Error('SECURITY VIOLATION: Configure both ED25519_PRIVATE_KEY and ED25519_PUBLIC_KEY, or neither for local development.');
       }
       if (hasPrivate && hasPublic) {
+        if (!validateEd25519KeyPair(env.ED25519_PRIVATE_KEY, env.ED25519_PUBLIC_KEY)) {
+          throw new Error('SECURITY VIOLATION: Configured ED25519_PUBLIC_KEY does not match ED25519_PRIVATE_KEY. (ED25519_PRIVATE_KEY does not match ED25519_PUBLIC_KEY)');
+        }
         this._keyPair = {
           publicKeyHex: env.ED25519_PUBLIC_KEY,
           privateKeyHex: env.ED25519_PRIVATE_KEY
         };
       } else {
         if (env.NODE_ENV === 'production') {
-          throw new Error('SECURITY VIOLATION: Production signing keys are required.');
+          throw new Error('SECURITY VIOLATION: Ephemeral signing key generation prohibited in production.');
         }
         // Ephemeral keys are permitted only outside production.
         const generated = generateEd25519KeyPair();
@@ -195,8 +200,16 @@ export class SecurityFirewallService {
       const probeSignature = signMessage(probe, this._keyPair.privateKeyHex);
       if (!verifySignature(probe, probeSignature, this._keyPair.publicKeyHex)) {
         this._keyPair = null;
-        throw new Error('SECURITY VIOLATION: ED25519_PRIVATE_KEY does not match ED25519_PUBLIC_KEY.');
+        throw new Error('SECURITY VIOLATION: Configured ED25519_PUBLIC_KEY does not match ED25519_PRIVATE_KEY. (ED25519_PRIVATE_KEY does not match ED25519_PUBLIC_KEY)');
       }
+
+      // Register the active signing key so PayPal authorization verification
+      // resolves public keys only through the trusted-key registry.
+      trustedKeyRegistry.registerKey({
+        keyId: env.ED25519_KEY_ID || 'FIREWALL_KEY_PRIMARY',
+        publicKeyHex: this._keyPair.publicKeyHex,
+        status: 'ACTIVE'
+      });
     }
     return this._keyPair;
   }

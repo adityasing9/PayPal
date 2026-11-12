@@ -70,7 +70,7 @@ export function generateEd25519KeyPair() {
  * @param {crypto.KeyObject | string | Buffer} key
  * @returns {crypto.KeyObject}
  */
-function resolvePrivateKey(key) {
+export function resolvePrivateKey(key) {
   if (key && typeof key === 'object' && key.type === 'private') {
     return key;
   }
@@ -108,7 +108,7 @@ function resolvePrivateKey(key) {
  * @param {crypto.KeyObject | string | Buffer} key
  * @returns {crypto.KeyObject}
  */
-function resolvePublicKey(key) {
+export function resolvePublicKey(key) {
   if (key && typeof key === 'object' && key.type === 'public') {
     return key;
   }
@@ -138,6 +138,37 @@ function resolvePublicKey(key) {
     return crypto.createPublicKey({ key, format: 'der', type: 'spki' });
   }
   throw new TypeError('Invalid Ed25519 public key format. Expected KeyObject, PEM, or 32-byte hex string.');
+}
+
+/**
+ * Validates that an Ed25519 public key mathematically matches an Ed25519 private key.
+ * Uses both public key derivation comparison and signature verification self-test.
+ *
+ * @param {crypto.KeyObject | string | Buffer} privateKey
+ * @param {crypto.KeyObject | string | Buffer} publicKey
+ * @returns {boolean} True if keys form a valid matching pair.
+ */
+export function validateEd25519KeyPair(privateKey, publicKey) {
+  try {
+    const privObj = resolvePrivateKey(privateKey);
+    const pubObj = resolvePublicKey(publicKey);
+
+    // 1. Derive public key from private key and compare SPKI DER
+    const derivedPub = crypto.createPublicKey(privObj);
+    const derivedDer = derivedPub.export({ type: 'spki', format: 'der' });
+    const configuredDer = pubObj.export({ type: 'spki', format: 'der' });
+
+    if (!crypto.timingSafeEqual(derivedDer, configuredDer)) {
+      return false;
+    }
+
+    // 2. Perform self-test sign and verify
+    const testPayload = Buffer.from('INTENTLOCK_KEY_PAIR_VALIDATION', 'utf8');
+    const sig = signEd25519(testPayload, privObj);
+    return verifyEd25519(testPayload, sig, pubObj);
+  } catch {
+    return false;
+  }
 }
 
 /**

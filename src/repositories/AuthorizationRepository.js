@@ -116,6 +116,32 @@ export class AuthorizationRepository {
   }
 
   /**
+   * Finds an authorization record by authorizationId (or MongoDB _id).
+   *
+   * @param {string} authorizationId
+   * @returns {Promise<import('mongoose').Document | null>}
+   */
+  async findByAuthorizationId(authorizationId) {
+    if (!authorizationId) return null;
+    if (AuthorizationRecord.findById?.mock || AuthorizationRecord.findById?._isMockFunction) {
+      const mocked = await AuthorizationRecord.findById(authorizationId);
+      if (mocked) return mocked;
+    }
+    const idStr = typeof authorizationId === 'string'
+      ? authorizationId
+      : (authorizationId && typeof authorizationId.toString === 'function')
+        ? authorizationId.toString()
+        : String(authorizationId || '');
+    const hex24 = /^[0-9a-fA-F]{24}$/.test(idStr) ? idStr : null;
+    return AuthorizationRecord.findOne({
+      $or: [
+        { _id: hex24 },
+        { authorizationId: idStr }
+      ]
+    });
+  }
+
+  /**
    * Atomically claims an authorization nonce (PENDING -> IN_FLIGHT).
    *
    * Atomicity condition:

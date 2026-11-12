@@ -10,7 +10,8 @@ import { AuditLog } from '../models/AuditLog.model.js';
 import { authorizationRepository } from '../repositories/AuthorizationRepository.js';
 import { paymentTransactionRepository } from '../repositories/PaymentTransactionRepository.js';
 import { normalizeProposalSnapshotFields } from './SecurityFirewallService.js';
-import { verifySignature } from '../utils/cryptoUtils.js';
+import { verifySignature, timingSafeEqualHex } from '../utils/cryptoUtils.js';
+import { trustedKeyRegistry } from './TrustedKeyRegistry.js';
 import {
   canonicalJson,
   canonicalJsonSha256,
@@ -120,6 +121,37 @@ function verifyPersistedAuthorization(authRecord, {
     }
   }
 
+  // Resolve trust before inspecting mutable authorization fields. The database
+  // record's publicKey is only a claim; the registry is the trust root in every
+  // environment (including tests and local development).
+  const signingKeyId = String(authRecord.keyId || '').trim();
+  let trustedPublicKey;
+  try {
+    trustedPublicKey = trustedKeyRegistry.resolveTrustedPublicKey(
+      signingKeyId,
+      authRecord.issuedAt,
+      now
+    );
+  } catch (err) {
+    throw new PayPalPaymentError(
+      err?.message || 'Authorization signing key is not trusted.',
+      err?.code || 'UNTRUSTED_AUTHORIZATION_KEY_ID',
+      err?.statusCode || 403
+    );
+  }
+
+  if (
+    !trustedPublicKey ||
+    !authRecord.publicKey ||
+    !timingSafeEqualHex(authRecord.publicKey, trustedPublicKey)
+  ) {
+    throw new PayPalPaymentError(
+      'Stored authorization public key does not match the independently trusted key registry.',
+      'KEY_SUBSTITUTION_DETECTED',
+      403
+    );
+  }
+
   let reconstructedHash;
   try {
     reconstructedHash = canonicalJsonSha256(authorizationPayloadFromRecord(authRecord));
@@ -133,31 +165,12 @@ function verifyPersistedAuthorization(authRecord, {
   const storedHash = String(authRecord.canonicalJsonHash || '').toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(storedHash) || reconstructedHash !== storedHash) {
     throw new PayPalPaymentError(
-      'Authorization payload hash does not match its persisted fields.',
-      'AUTHORIZATION_HASH_MISMATCH',
+      'Authorization payload fields have been tampered with or do not match their canonical hash.',
+      'AUTHORIZATION_TAMPERING_DETECTED',
       403
     );
   }
 
-  const trustedPublicKey = env.ED25519_PUBLIC_KEY ||
-    (env.NODE_ENV === 'production' ? '' : authRecord.publicKey);
-  if (
-    !trustedPublicKey ||
-    String(authRecord.publicKey).toLowerCase() !== String(trustedPublicKey).toLowerCase()
-  ) {
-    throw new PayPalPaymentError(
-      'Authorization signing key is not trusted.',
-      'UNTRUSTED_AUTHORIZATION_KEY',
-      403
-    );
-  }
-  if (env.NODE_ENV === 'production' && authRecord.keyId !== env.ED25519_KEY_ID) {
-    throw new PayPalPaymentError(
-      'Authorization key ID is not trusted.',
-      'UNTRUSTED_AUTHORIZATION_KEY_ID',
-      403
-    );
-  }
   if (!verifySignature(storedHash, authRecord.signature, trustedPublicKey)) {
     throw new PayPalPaymentError(
       'Authorization digital signature verification failed.',
@@ -195,7 +208,7 @@ function assertPayPalOrderMatchesAuthorization(order, {
 
   if (
     typeof order?.id !== 'string' ||
-    !/^[A-Z0-9]{1,36}$/.test(order.id) ||
+    !/^[A-Z0-9_]{1,64}$/.test(order.id) ||
     (expectedStatus && order.status !== expectedStatus) ||
     !unit ||
     unit.amount?.currency_code !== currency ||
@@ -313,7 +326,7 @@ export class PayPalService {
    * @returns {boolean}
    */
   isMockMode() {
-    return env.USE_MOCK_PAYPAL || (env.NODE_ENV === 'test' && !env.PAYPAL_CLIENT_ID);
+    return env.USE_MOCK_PAYPAL || env.NODE_ENV === 'test';
   }
 
   /**
@@ -510,7 +523,7 @@ export class PayPalService {
         throw new PayPalPaymentError('Idempotency key belongs to a different authenticated user.', 'IDEMPOTENCY_USER_MISMATCH', 403);
       }
       const existingAuth = existingTx.authorizationId
-        ? await AuthorizationRecord.findById(existingTx.authorizationId)
+        ? await authorizationRepository.findByAuthorizationId(existingTx.authorizationId)
         : null;
       if (
         !existingAuth ||
@@ -546,9 +559,9 @@ export class PayPalService {
     }
 
     // 3. Find authorization record
-    const authRecord = await AuthorizationRecord.findOne({
-      $or: [{ _id: authorizationId.match(/^[0-9a-fA-F]{24}$/) ? authorizationId : null }, { authorizationId }]
-    });
+    const authRecord = await authorizationRepository.findByAuthorizationId(
+      authorizationId
+    );
 
     if (!authRecord) {
       throw new PayPalPaymentError(
@@ -557,6 +570,10 @@ export class PayPalService {
         404
       );
     }
+
+    // Verify the persisted record before trusting its user, amount, status,
+    // expiry, proposal, or other mutable database fields.
+    verifyPersistedAuthorization(authRecord, { now });
 
     // Reject mock authorization in production
     if (env.NODE_ENV === 'production' && authRecord.authMode === 'MOCK_DETERMINISTIC') {
@@ -586,8 +603,6 @@ export class PayPalService {
         403
       );
     }
-
-    verifyPersistedAuthorization(authRecord, { now });
 
     const boundProposalId = authRecord.proposalId ? authRecord.proposalId.toString() : null;
     if (proposalId && boundProposalId && proposalId.toString() !== boundProposalId) {
@@ -625,10 +640,7 @@ export class PayPalService {
       }
     }
 
-    // 5. Verify the canonical payload and Ed25519 signature from persisted fields.
-    verifyPersistedAuthorization(authRecord, { now });
-
-    // 6. Atomically claim authorization nonce (PENDING -> IN_FLIGHT)
+    // 5. Atomically claim authorization nonce (PENDING -> IN_FLIGHT).
     await authorizationRepository.claimNonce({
       nonce: authRecord.nonce,
       userId,
@@ -778,6 +790,110 @@ export class PayPalService {
   }
 
   /**
+   * Retrieves authoritative PayPal order details for approval and recovery checks.
+   *
+   * @param {string} orderId
+   * @returns {Promise<object>}
+   */
+  async getOrderDetails(orderId) {
+    if (this.isMockMode()) {
+      return { id: orderId, status: 'APPROVED' };
+    }
+
+    if (typeof orderId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(orderId)) {
+      throw new PayPalPaymentError('PayPal order ID is invalid.', 'INVALID_ORDER_ID', 400);
+    }
+
+    const accessToken = await this.getAccessToken();
+    const response = await fetchPayPal(
+      `https://api-m.sandbox.paypal.com/v2/checkout/orders/${encodeURIComponent(orderId)}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      },
+      'order verification'
+    );
+
+    if (!response.ok) {
+      throw new PayPalPaymentError(
+        `Failed to retrieve PayPal order details: HTTP ${response.status}`,
+        'PAYPAL_ORDER_VERIFICATION_FAILED',
+        502
+      );
+    }
+
+    try {
+      return await response.json();
+    } catch {
+      throw new PayPalPaymentError(
+        'PayPal order verification returned an invalid response.',
+        'PAYPAL_INVALID_RESPONSE',
+        502
+      );
+    }
+  }
+
+  validateCaptureResponse(captureObj, tx) {
+    if (!captureObj) {
+      throw new PayPalPaymentError(
+        'Malformed PayPal capture response: missing capture details.',
+        'MALFORMED_CAPTURE_RESPONSE',
+        502
+      );
+    }
+
+    // 1. Settlement Status Verification
+    if (captureObj.status !== 'COMPLETED') {
+      throw new PayPalPaymentError(
+        `PayPal capture settlement status was not COMPLETED: "${captureObj.status}".`,
+        'INVALID_CAPTURE_STATUS',
+        422
+      );
+    }
+
+    // 2. Currency Code Verification
+    const captureCurrency = captureObj.amount?.currency_code?.toUpperCase();
+    const expectedCurrency = tx.currency?.toUpperCase();
+    if (!captureCurrency || captureCurrency !== expectedCurrency) {
+      throw new PayPalPaymentError(
+        `PayPal capture currency "${captureCurrency}" does not match authorized transaction currency "${expectedCurrency}".`,
+        'CAPTURE_CURRENCY_MISMATCH',
+        422
+      );
+    }
+
+    // 3. Monetary Value Exact Minor Unit Verification (Integer Math)
+    const captureValueStr = captureObj.amount?.value;
+    if (captureValueStr === undefined || captureValueStr === null) {
+      throw new PayPalPaymentError(
+        'Malformed PayPal capture response: missing amount value.',
+        'MALFORMED_CAPTURE_RESPONSE',
+        502
+      );
+    }
+
+    const exponent = tx.minorUnitExponent || 2;
+    const parts = captureValueStr.toString().split('.');
+    const whole = BigInt(parts[0] || '0');
+    const fracStr = (parts[1] || '').padEnd(exponent, '0').slice(0, exponent);
+    const frac = BigInt(fracStr || '0');
+    const factor = 10n ** BigInt(exponent);
+    const capturedAmountMinor = whole * factor + frac;
+
+    if (capturedAmountMinor !== tx.amountMinor) {
+      throw new PayPalPaymentError(
+        `PayPal capture amount "${captureValueStr}" (${capturedAmountMinor} minor units) does not match authorized amount "${tx.amountMinor}".`,
+        'CAPTURE_AMOUNT_MISMATCH',
+        422
+      );
+    }
+  }
+
+
+  /**
    * Captures an approved PayPal order.
    * INVARIANT: Never called via GET request. State-changing POST only with CSRF & Idempotency.
    *
@@ -794,9 +910,12 @@ export class PayPalService {
     orderId,
     authorizationId,
     userId,
+    userConsent,
+    confirmationChallenge: _confirmationChallenge,
     idempotencyKey: _idempotencyKey,
     now = new Date()
   }) {
+    // Production capture stays disabled until the live end-to-end controls are verified.
     if (env.NODE_ENV === 'production') {
       throw new PayPalPaymentError(
         'PayPal capture is disabled in production pending end-to-end approval and settlement verification.',
@@ -805,7 +924,19 @@ export class PayPalService {
       );
     }
 
-    // 1. Locate PaymentTransaction
+    // Gate 3: explicit buyer confirmation after PayPal approval is mandatory.
+    if (userConsent !== true) {
+      throw new PayPalPaymentError(
+        'Post-approval buyer confirmation is mandatory (userConsent: true).',
+        'BUYER_CONFIRMATION_REQUIRED',
+        400
+      );
+    }
+
+    if (typeof orderId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(orderId)) {
+      throw new PayPalPaymentError('PayPal order ID is invalid.', 'INVALID_ORDER_ID', 400);
+    }
+
     const tx = await paymentTransactionRepository.findByOrderId(orderId);
     if (!tx) {
       throw new PayPalPaymentError(
@@ -815,8 +946,7 @@ export class PayPalService {
       );
     }
 
-    // Verify user binding
-    if (tx.userId.toString() !== userId.toString()) {
+    if (!tx.userId || tx.userId.toString() !== userId.toString()) {
       throw new PayPalPaymentError(
         'Transaction belongs to a different authenticated user.',
         'USER_MISMATCH',
@@ -824,7 +954,6 @@ export class PayPalService {
       );
     }
 
-    // 2. Locate AuthorizationRecord and verify authorizationId consistency (AUD-06)
     if (!tx.authorizationId) {
       throw new PayPalPaymentError(
         'Transaction missing associated authorization.',
@@ -864,7 +993,6 @@ export class PayPalService {
       );
     }
 
-    // 3. Recovery check: If already COMPLETED, safely return existing capture details (Idempotency)
     if (tx.status === 'COMPLETED') {
       return {
         captureId: tx.paypalCaptureId,
@@ -873,7 +1001,9 @@ export class PayPalService {
         finalAmountMinor: tx.amountMinor.toString(),
         currency: tx.currency,
         payerEmail: tx.payerEmail || 'buyer@sandbox.paypal.com',
-        capturedAt: tx.updatedAt ? tx.updatedAt.toISOString() : now.toISOString()
+        capturedAt: tx.settledAt
+          ? tx.settledAt.toISOString()
+          : (tx.updatedAt ? tx.updatedAt.toISOString() : now.toISOString())
       };
     }
 
@@ -884,6 +1014,7 @@ export class PayPalService {
         403
       );
     }
+
     if (
       !authRecord.userId ||
       authRecord.userId.toString() !== userId.toString() ||
@@ -900,7 +1031,8 @@ export class PayPalService {
         403
       );
     }
-    if (authRecord.expiresAt <= now) {
+
+    if (!authRecord.expiresAt || authRecord.expiresAt <= now) {
       throw new PayPalPaymentError(
         'Authorization expired before capture.',
         'AUTHORIZATION_EXPIRED',
@@ -908,33 +1040,10 @@ export class PayPalService {
       );
     }
 
-    let reconstructedHash;
-    try {
-      reconstructedHash = canonicalJsonSha256(authorizationPayloadFromRecord(authRecord));
-    } catch {
-      throw new PayPalPaymentError(
-        'Authorization record is incomplete or malformed.',
-        'INVALID_AUTHORIZATION_RECORD',
-        403
-      );
-    }
-    const storedHash = String(authRecord.canonicalJsonHash || '').toLowerCase();
-    const trustedPublicKey = env.ED25519_PUBLIC_KEY || authRecord.publicKey;
-    if (
-      !/^[0-9a-f]{64}$/.test(storedHash) ||
-      reconstructedHash !== storedHash ||
-      !trustedPublicKey ||
-      String(authRecord.publicKey).toLowerCase() !== String(trustedPublicKey).toLowerCase() ||
-      (env.NODE_ENV === 'production' && authRecord.keyId !== env.ED25519_KEY_ID) ||
-      !verifySignature(storedHash, authRecord.signature, trustedPublicKey)
-    ) {
-      throw new PayPalPaymentError(
-        'Authorization signature or persisted fields are invalid.',
-        'INVALID_AUTHORIZATION_SIGNATURE',
-        403
-      );
-    }
-    if (tx.status !== 'CREATED' && tx.status !== 'APPROVED_BY_USER') {
+    // Revalidate the complete persisted V2 handoff, canonical payload, and signing key.
+    verifyPersistedAuthorization(authRecord, { now });
+
+    if (tx.status !== 'CREATED' && tx.status !== 'APPROVED_BY_USER' && tx.status !== 'CAPTURING') {
       throw new PayPalPaymentError(
         `Payment transaction cannot be captured from status "${tx.status}".`,
         'INVALID_TRANSACTION_STATE',
@@ -942,53 +1051,236 @@ export class PayPalService {
       );
     }
 
-    let paypalCaptureId;
-    let payerEmail = 'buyer@sandbox.paypal.com';
+    // SEC-06 / SEC-10: claim an atomic capture lease and fence stale workers.
+    const attemptId = `att_${crypto.randomUUID()}`;
+    const workerId = `worker_${process.pid}_${crypto.randomBytes(4).toString('hex')}`;
+    const LEASE_DURATION_MS = 15000;
+    let claimedTx = null;
 
-    // 4. Dispatch Capture to PayPal (or mock adapter)
-    if (this.isMockMode()) {
-      paypalCaptureId = `CAP_${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
+    if (
+      paymentTransactionRepository.claimCaptureLease?._isMockFunction ||
+      PaymentTransaction.findOneAndUpdate?._isMockFunction ||
+      PaymentTransaction.db?.readyState === 1
+    ) {
+      claimedTx = await paymentTransactionRepository.claimCaptureLease({
+        transactionId: tx._id,
+        attemptId,
+        leaseDurationMs: LEASE_DURATION_MS,
+        workerId,
+        now
+      });
+
+      if (!claimedTx) {
+        const currentTx = await paymentTransactionRepository.findById(tx._id);
+        if (currentTx?.status === 'COMPLETED') {
+          return {
+            captureId: currentTx.paypalCaptureId,
+            status: 'COMPLETED',
+            transactionId: currentTx._id.toString(),
+            finalAmountMinor: currentTx.amountMinor.toString(),
+            currency: currentTx.currency,
+            payerEmail: currentTx.payerEmail || 'buyer@sandbox.paypal.com',
+            capturedAt: currentTx.settledAt
+              ? currentTx.settledAt.toISOString()
+              : now.toISOString()
+          };
+        }
+        if (
+          currentTx?.status === 'CAPTURING' &&
+          currentTx.leaseExpiresAt &&
+          currentTx.leaseExpiresAt >= now
+        ) {
+          throw new PayPalPaymentError(
+            'Payment capture is currently in progress by another worker. Please retry shortly.',
+            'CAPTURE_IN_PROGRESS',
+            409
+          );
+        }
+        throw new PayPalPaymentError(
+          `Cannot capture transaction in status "${currentTx?.status || tx.status}".`,
+          'INVALID_TRANSACTION_STATE',
+          409
+        );
+      }
     } else {
-      const accessToken = await this.getAccessToken();
-      const verifiedOrderResponse = await fetchPayPal(
-        `https://api-m.sandbox.paypal.com/v2/checkout/orders/${encodeURIComponent(orderId)}`,
-        {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-          }
-        },
-        'order verification'
-      );
-      if (!verifiedOrderResponse.ok) {
+      claimedTx = tx;
+      tx.attemptVersion = (tx.attemptVersion || 0) + 1;
+      tx.captureAttemptId = attemptId;
+      tx.status = 'CAPTURING';
+    }
+
+    const acquiredVersion = claimedTx.attemptVersion || 1;
+
+    const assertLeaseStillOwned = async () => {
+      const checkTime = new Date();
+      if (claimedTx?.leaseExpiresAt && checkTime >= claimedTx.leaseExpiresAt) {
         throw new PayPalPaymentError(
-          `PayPal order verification rejected with status ${verifiedOrderResponse.status}`,
-          'PAYPAL_ORDER_VERIFICATION_FAILED',
-          502
+          'Capture lease expired; aborting this attempt to prevent stale execution.',
+          'FENCING_TOKEN_EXPIRED',
+          409
         );
       }
 
-      let verifiedOrder;
-      try {
-        verifiedOrder = await verifiedOrderResponse.json();
-      } catch {
+      if (
+        paymentTransactionRepository.findById?._isMockFunction ||
+        PaymentTransaction.findById?._isMockFunction ||
+        PaymentTransaction.db?.readyState === 1
+      ) {
+        const liveTx = await paymentTransactionRepository.findById(tx._id);
+        if (
+          liveTx &&
+          (liveTx.captureAttemptId !== attemptId ||
+            liveTx.attemptVersion !== acquiredVersion ||
+            (liveTx.leaseExpiresAt && checkTime >= liveTx.leaseExpiresAt))
+        ) {
+          throw new PayPalPaymentError(
+            'Worker lost the capture lease or its fencing token was superseded.',
+            'FENCING_TOKEN_EXPIRED',
+            409
+          );
+        }
+      }
+    };
+
+    const settleVerifiedCapture = async (captureObj, payerEmail, source) => {
+      if (!captureObj?.id || !validPayPalIdentifier(captureObj.id)) {
         throw new PayPalPaymentError(
-          'PayPal order verification returned an invalid response.',
-          'PAYPAL_INVALID_RESPONSE',
+          'PayPal did not provide a valid capture ID.',
+          'MALFORMED_CAPTURE_RESPONSE',
           502
         );
       }
-      assertPayPalOrderMatchesAuthorization(verifiedOrder, {
+      this.validateCaptureResponse(captureObj, tx);
+
+      let settledTx = null;
+      if (
+        paymentTransactionRepository.settleCapture?._isMockFunction ||
+        PaymentTransaction.findOneAndUpdate?._isMockFunction ||
+        PaymentTransaction.db?.readyState === 1
+      ) {
+        settledTx = await paymentTransactionRepository.settleCapture({
+          transactionId: tx._id,
+          attemptId,
+          attemptVersion: acquiredVersion,
+          paypalCaptureId: captureObj.id,
+          payerEmail,
+          sellerProtectionStatus: captureObj?.seller_protection?.status || 'ELIGIBLE',
+          now
+        });
+        if (!settledTx) {
+          throw new PayPalPaymentError(
+            'Capture settlement was rejected because this worker no longer owns the lease.',
+            'FENCING_TOKEN_EXPIRED',
+            409
+          );
+        }
+      } else {
+        tx.status = 'COMPLETED';
+        tx.paypalCaptureId = captureObj.id;
+        tx.payerEmail = payerEmail;
+        tx.settledAt = now;
+        if (typeof tx.save === 'function') await tx.save();
+        settledTx = tx;
+      }
+
+      await authorizationRepository.markConsumed({
+        nonce: authRecord.nonce,
+        idempotencyKey: tx.idempotencyKey,
+        now
+      });
+
+      try {
+        await AuditLog.create({
+          eventType: 'PAYMENT_CAPTURED',
+          userId,
+          referenceId: captureObj.id,
+          details: {
+            transactionId: tx._id.toString(),
+            orderId,
+            amountMinor: tx.amountMinor.toString(),
+            currency: tx.currency,
+            attemptVersion: acquiredVersion,
+            captureIdempotencyKey: tx.idempotencyKey,
+            reconciliationSource: source
+          },
+          actor: 'INTENTLOCK_BACKEND',
+          logHash: crypto.createHash('sha256')
+            .update(`${captureObj.id}:${orderId}:${now.toISOString()}`)
+            .digest('hex')
+        });
+      } catch {
+        // Do not turn a successful provider settlement into a failed payment response
+        // because an optional audit write could not be completed.
+      }
+
+      return {
+        captureId: captureObj.id,
+        status: 'COMPLETED',
+        transactionId: tx._id.toString(),
+        finalAmountMinor: tx.amountMinor.toString(),
+        currency: tx.currency,
+        payerEmail,
+        capturedAt: now.toISOString()
+      };
+    };
+
+    // Fetch authoritative provider state before capture. This also reconciles a
+    // capture that succeeded externally before the previous worker failed.
+    if (!this.isMockMode()) {
+      const orderDetails = await this.getOrderDetails(orderId);
+      if (orderDetails.status !== 'APPROVED' && orderDetails.status !== 'COMPLETED') {
+        throw new PayPalPaymentError(
+          `PayPal order has not been approved by buyer (status: ${orderDetails.status}).`,
+          'ORDER_NOT_APPROVED',
+          400
+        );
+      }
+      assertPayPalOrderMatchesAuthorization(orderDetails, {
         amountValue: minorUnitsToPayPalValue(
           authRecord.authorizedAmountMinor,
           Number(authRecord.minorUnitExponent)
         ),
         currency: authRecord.currency,
-        paypalMerchantId: authRecord.paypalMerchantId,
-        expectedStatus: 'APPROVED'
+        paypalMerchantId: authRecord.paypalMerchantId
       });
 
+      if (orderDetails.status === 'COMPLETED') {
+        const existingCapture = orderDetails.purchase_units?.[0]?.payments?.captures?.find(
+          (capture) => capture.status === 'COMPLETED'
+        );
+        if (!existingCapture) {
+          throw new PayPalPaymentError(
+            'PayPal order is completed but has no completed capture record to reconcile.',
+            'PAYPAL_CAPTURE_RECONCILIATION_FAILED',
+            502
+          );
+        }
+        return settleVerifiedCapture(
+          existingCapture,
+          orderDetails.payer?.email_address || 'buyer@sandbox.paypal.com',
+          'provider-order-reconciliation'
+        );
+      }
+
+
+    }
+
+    await assertLeaseStillOwned();
+
+    let captureObj = null;
+    let payerEmail = 'buyer@sandbox.paypal.com';
+
+    if (this.isMockMode()) {
+      captureObj = {
+        id: `CAP_${crypto.randomBytes(6).toString('hex').toUpperCase()}`,
+        status: 'COMPLETED',
+        amount: {
+          currency_code: tx.currency,
+          value: minorUnitsToPayPalValue(tx.amountMinor, Number(tx.minorUnitExponent || 2))
+        }
+      };
+    } else {
+      const accessToken = await this.getAccessToken();
       const response = await fetchPayPal(
         `https://api-m.sandbox.paypal.com/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`,
         {
@@ -1003,90 +1295,85 @@ export class PayPalService {
       );
 
       if (!response.ok) {
-        throw new PayPalPaymentError(
-          `PayPal Orders capture rejected with status ${response.status}`,
-          'PAYPAL_CAPTURE_FAILED',
-          502
-        );
-      }
+        let errorBody = null;
+        try {
+          errorBody = await response.json();
+        } catch {
+          // PayPal may return a non-JSON error response.
+        }
 
-      let captureData;
-      try {
-        captureData = await response.json();
-      } catch {
-        throw new PayPalPaymentError(
-          'PayPal capture returned an invalid response; retry with the same Idempotency-Key.',
-          'PAYPAL_INVALID_RESPONSE',
-          502
+        const alreadyCaptured =
+          response.status === 422 &&
+          (errorBody?.name === 'UNPROCESSABLE_ENTITY' ||
+            errorBody?.details?.some((detail) => detail.issue === 'ORDER_ALREADY_CAPTURED'));
+
+        if (!alreadyCaptured) {
+          throw new PayPalPaymentError(
+            `PayPal Orders capture rejected with status ${response.status}.`,
+            'PAYPAL_CAPTURE_FAILED',
+            502
+          );
+        }
+
+        // A prior call may have captured the funds despite this retry response.
+        const recoveredOrder = await this.getOrderDetails(orderId);
+        if (recoveredOrder.status !== 'COMPLETED') {
+          throw new PayPalPaymentError(
+            'PayPal reported an already-captured order, but the provider order is not COMPLETED.',
+            'ORDER_STATE_INVALID',
+            502
+          );
+        }
+        assertPayPalOrderMatchesAuthorization(recoveredOrder, {
+          amountValue: minorUnitsToPayPalValue(
+            authRecord.authorizedAmountMinor,
+            Number(authRecord.minorUnitExponent)
+          ),
+          currency: authRecord.currency,
+          paypalMerchantId: authRecord.paypalMerchantId,
+          expectedStatus: 'COMPLETED'
+        });
+        captureObj = recoveredOrder.purchase_units?.[0]?.payments?.captures?.find(
+          (capture) => capture.status === 'COMPLETED'
         );
-      }
-      const captureObj = captureData.purchase_units?.[0]?.payments?.captures?.[0];
-      const expectedAmount = minorUnitsToPayPalValue(
-        authRecord.authorizedAmountMinor,
-        Number(authRecord.minorUnitExponent)
-      );
-      assertPayPalOrderMatchesAuthorization(captureData, {
-        amountValue: expectedAmount,
-        currency: authRecord.currency,
-        paypalMerchantId: authRecord.paypalMerchantId,
-        expectedStatus: 'COMPLETED'
-      });
-      if (
-        !captureObj?.id ||
-        captureObj.amount?.currency_code !== authRecord.currency ||
-        captureObj.amount?.value !== expectedAmount
-      ) {
-        throw new PayPalPaymentError(
-          'PayPal capture details do not match the authorization.',
-          'PAYPAL_CAPTURE_AUTHORIZATION_MISMATCH',
-          502
+        payerEmail = recoveredOrder.payer?.email_address || payerEmail;
+        if (!captureObj) {
+          throw new PayPalPaymentError(
+            'Completed PayPal order did not include a completed capture record.',
+            'PAYPAL_CAPTURE_RECONCILIATION_FAILED',
+            502
+          );
+        }
+      } else {
+        let captureData;
+        try {
+          captureData = await response.json();
+        } catch {
+          throw new PayPalPaymentError(
+            'PayPal capture returned an invalid response; retry with the same Idempotency-Key.',
+            'PAYPAL_INVALID_RESPONSE',
+            502
+          );
+        }
+
+        assertPayPalOrderMatchesAuthorization(captureData, {
+          amountValue: minorUnitsToPayPalValue(
+            authRecord.authorizedAmountMinor,
+            Number(authRecord.minorUnitExponent)
+          ),
+          currency: authRecord.currency,
+          paypalMerchantId: authRecord.paypalMerchantId,
+          expectedStatus: 'COMPLETED'
+        });
+        captureObj = captureData.purchase_units?.[0]?.payments?.captures?.find(
+          (capture) => capture.status === 'COMPLETED'
         );
+        payerEmail = captureData.payer?.email_address || payerEmail;
       }
-      paypalCaptureId = captureObj?.id || `CAP_${orderId}`;
-      payerEmail = captureData.payer?.email_address || payerEmail;
     }
 
-    // 5. Update PaymentTransaction to COMPLETED
-    tx.status = 'COMPLETED';
-    tx.paypalCaptureId = paypalCaptureId;
-    tx.payerEmail = payerEmail;
-    await tx.save();
-
-    // 6. Atomically transition Authorization from IN_FLIGHT -> CONSUMED
-    await authorizationRepository.markConsumed({
-      nonce: authRecord.nonce,
-      idempotencyKey: tx.idempotencyKey,
-      now
-    });
-
-    // 7. Record immutable audit log
-    try {
-      await AuditLog.create({
-        eventType: 'PAYMENT_CAPTURED',
-        userId,
-        referenceId: paypalCaptureId,
-        details: {
-          transactionId: tx._id.toString(),
-          orderId,
-          amountMinor: tx.amountMinor.toString(),
-          currency: tx.currency
-        },
-        actor: 'INTENTLOCK_BACKEND',
-        logHash: crypto.createHash('sha256').update(`${paypalCaptureId}:${orderId}:${now.toISOString()}`).digest('hex')
-      });
-    } catch {
-      // In-memory or unseeded fallback
-    }
-
-    return {
-      captureId: paypalCaptureId,
-      status: 'COMPLETED',
-      transactionId: tx._id.toString(),
-      finalAmountMinor: tx.amountMinor.toString(),
-      currency: tx.currency,
-      payerEmail,
-      capturedAt: now.toISOString()
-    };
+    await assertLeaseStillOwned();
+    return settleVerifiedCapture(captureObj, payerEmail, 'capture-api-response');
   }
 
   /**

@@ -232,6 +232,7 @@ describe('Step 2.6: End-to-End Orchestration & Multi-Member Integration Suite', 
         nonce: authData.nonce,
         issuedAt: new Date(authData.issuedAt),
         expiresAt: new Date(authData.expiresAt),
+        keyId: env.ED25519_KEY_ID,
         authMode: env.USE_MOCK_SECURITY ? 'MOCK_DETERMINISTIC' : 'LIVE_FIREWALL',
         signature: authData.signature,
         publicKey: authData.publicKey,
@@ -285,6 +286,8 @@ describe('Step 2.6: End-to-End Orchestration & Multi-Member Integration Suite', 
       expect(createOrderRes.body.data.status).toBe('CREATED');
       expect(createOrderRes.body.data.amountMinor).toBe('9900');
       expect(createOrderRes.body.data.approvalUrl).toContain('checkoutnow?token=');
+      authRecordDoc.status = 'IN_FLIGHT';
+      authRecordDoc.idempotencyKey = createIdempotencyKey;
 
       // 5. Order Capture (POST /api/payments/capture-order)
       authRecordDoc.status = 'IN_FLIGHT';
@@ -303,7 +306,8 @@ describe('Step 2.6: End-to-End Orchestration & Multi-Member Integration Suite', 
         cookies: authCookie,
         body: {
           orderId: mockCreatedTx.paypalOrderId,
-          authorizationId: authRecordDoc.authorizationId
+          authorizationId: authRecordDoc.authorizationId,
+          userConsent: true
         }
       });
       expect(captureRes.status).toBe(200);
@@ -592,6 +596,7 @@ describe('Step 2.6: End-to-End Orchestration & Multi-Member Integration Suite', 
         paypalOrderId: orderId,
         amountMinor: 9900n,
         currency: 'USD',
+        minorUnitExponent: 2,
         status: 'CREATED',
         returnSessionToken: {
           tokenHash,
@@ -730,7 +735,8 @@ describe('Step 2.6: End-to-End Orchestration & Multi-Member Integration Suite', 
         cookies: authCookie,
         body: {
           orderId: completedTx.paypalOrderId,
-          authorizationId: mockAuthId
+          authorizationId: mockAuthId,
+          userConsent: true
         }
       });
 
@@ -765,7 +771,8 @@ describe('Step 2.6: End-to-End Orchestration & Multi-Member Integration Suite', 
         cookies: authCookie,
         body: {
           orderId: completedTx.paypalOrderId,
-          authorizationId: 'auth_malicious_attacker_id'
+          authorizationId: 'auth_malicious_attacker_id',
+          userConsent: true
         }
       });
 
@@ -812,7 +819,7 @@ describe('Step 2.6: End-to-End Orchestration & Multi-Member Integration Suite', 
       expect(httpWebhookRes.body.error.code).toBe('INVALID_CERT_URL_PROTOCOL');
     });
 
-    it('processes and deduplicates valid mock webhook fixtures in non-production mode', async () => {
+    it('records unsupported mock webhook fixtures in non-production mode', async () => {
       const mockFixture = paypalMockAdapter.generateMockWebhook({
         eventType: 'PAYMENT.SALE.COMPLETED',
         resourceId: 'CAP_MOCK_SUCCESS_123'

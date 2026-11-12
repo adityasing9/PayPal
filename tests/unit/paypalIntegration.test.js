@@ -21,6 +21,7 @@ import {
   hashReturnToken
 } from '../../src/utils/cryptoUtils.js';
 import { computeSnapshotCanonicalHash, hashCanonicalJson } from '../../src/utils/canonicalJson.js';
+import { trustedKeyRegistry } from '../../src/services/TrustedKeyRegistry.js';
 import { dispatchRequest } from '../helpers/testClient.js';
 
 describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhooks', () => {
@@ -59,6 +60,11 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
 
     // Setup valid Ed25519 keypair and authorization record
     keyPair = generateEd25519KeyPair();
+    trustedKeyRegistry.registerKey({
+      keyId: env.ED25519_KEY_ID,
+      publicKeyHex: keyPair.publicKeyHex,
+      status: 'ACTIVE'
+    });
     const nonce = generateNonce(32);
     const authorizationId = 'auth_' + generateNonce(8);
     const now = new Date();
@@ -92,6 +98,7 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
       proposalId: 'prop_456',
       snapshotId: 'snap_789',
       issuedAt: now,
+      keyId: env.ED25519_KEY_ID,
       nonce,
       userId,
       snapshotHash: 'c'.repeat(64),
@@ -155,6 +162,24 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
         ...mockAuthRecord,
         expiresAt: new Date(Date.now() - 10000) // Expired 10s ago
       };
+      const expiredPayload = {
+        authorizationId: expiredRecord.authorizationId,
+        intentId: expiredRecord.intentId,
+        intentVersion: expiredRecord.intentVersion,
+        proposalId: expiredRecord.proposalId,
+        snapshotId: expiredRecord.snapshotId,
+        snapshotHash: expiredRecord.snapshotHash,
+        userId: expiredRecord.userId.toString(),
+        paypalMerchantId: expiredRecord.paypalMerchantId,
+        totalPriceMinor: expiredRecord.authorizedAmountMinor.toString(),
+        currency: expiredRecord.currency,
+        nonce: expiredRecord.nonce,
+        issuedAt: expiredRecord.issuedAt.toISOString(),
+        expiresAt: expiredRecord.expiresAt.toISOString(),
+        authMode: expiredRecord.authMode
+      };
+      expiredRecord.canonicalJsonHash = hashCanonicalJson(expiredPayload);
+      expiredRecord.signature = signEd25519(expiredRecord.canonicalJsonHash, keyPair.privateKey);
       vi.spyOn(AuthorizationRecord, 'findOne').mockResolvedValue(expiredRecord);
       vi.spyOn(paymentTransactionRepository, 'findByIdempotencyKey').mockResolvedValue(null);
       const claimNonceSpy = vi.spyOn(authorizationRepository, 'claimNonce');
@@ -565,6 +590,7 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
               payments: {
                 captures: [{
                   id: 'CAP_SANDBOX_TEST_1',
+                  status: 'COMPLETED',
                   amount: { currency_code: 'USD', value: '117.90' }
                 }]
               }
@@ -583,7 +609,8 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
         },
         body: {
           orderId: mockTx.paypalOrderId,
-          authorizationId: mockAuthRecord.authorizationId
+          authorizationId: mockAuthRecord.authorizationId,
+          userConsent: true
         }
       });
 
@@ -632,7 +659,8 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
         },
         body: {
           orderId: 'PAYPAL_ORDER_ALREADY_CAPTURED',
-          authorizationId: mockAuthRecord.authorizationId
+          authorizationId: mockAuthRecord.authorizationId,
+          userConsent: true
         }
       });
 
@@ -666,7 +694,8 @@ describe('Step 2.5.6, 2.5.7, 2.5.8: PayPal Sandbox Orders, Return Flow & Webhook
         },
         body: {
           orderId: 'PAYPAL_ORDER_AUTH_MISMATCH',
-          authorizationId: 'auth_completely_different_attacker'
+          authorizationId: 'auth_completely_different_attacker',
+          userConsent: true
         }
       });
 

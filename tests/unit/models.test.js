@@ -243,6 +243,10 @@ describe('Step 2.4.1: Mongoose Models & Database Foundation', () => {
       }
 
       const invalidRecord = new AuthorizationRecord({
+        authorizationId: 'auth_bad',
+        paypalMerchantId: 'PPM_MODEL_TEST',
+        snapshotId: new mongoose.Types.ObjectId(),
+        issuedAt: new Date(),
         proposalId: new mongoose.Types.ObjectId(),
         intentId: new mongoose.Types.ObjectId(),
         userId: new mongoose.Types.ObjectId(),
