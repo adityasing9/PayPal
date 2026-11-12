@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   RefreshCw,
+  ExternalLink,
 } from "lucide-react";
 
 import { verifySecurity, createPaymentOrder, capturePaymentOrder, ensureDemoSession } from "../api/client";
@@ -626,14 +627,35 @@ function Checkout() {
                 </p>
 
                 <p className="mt-3 text-xs text-slate-600">
-                  Order approved by buyer. Click below to execute atomic capture under monotonic fencing token.
+                  Order cryptographic lease verified. Choose your payment method below:
                 </p>
 
+                {/* Option 1: Authentic PayPal Sandbox UI */}
+                <a
+                  href={orderCreated.approvalUrl || `https://www.sandbox.paypal.com/checkoutnow?token=${orderCreated.orderId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#FFC439] hover:bg-[#F2BA36] py-3 text-sm font-bold text-[#003087] transition shadow-sm"
+                >
+                  <CreditCard size={17} />
+                  <span>Open PayPal Sandbox Payment Interface</span>
+                  <ExternalLink size={16} />
+                </a>
+
+                <div className="flex items-center gap-3 my-3">
+                  <div className="h-px flex-1 bg-blue-200" />
+                  <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider">
+                    Or Autonomous Agent Capture
+                  </span>
+                  <div className="h-px flex-1 bg-blue-200" />
+                </div>
+
+                {/* Option 2: 1-Click Serverless Atomic Capture */}
                 <button
                   type="button"
                   disabled={capturing}
                   onClick={handleCaptureOrder}
-                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:opacity-50"
                 >
                   {capturing ? (
                     <>
