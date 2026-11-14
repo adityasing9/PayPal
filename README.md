@@ -1,205 +1,295 @@
 # IntentLock Commerce
 
+<div align="center">
+
 **An AI Personal Shopping Agent with an Intelligent Payment Security Firewall**
 
-An intelligent, cryptographic security microservice designed to intercept AI-assisted commerce manipulation, drip pricing, deceptive recurring subscriptions, and prompt injections before issuing verifiable **Ed25519 authorization tokens** for PayPal transaction capture.
+*Search intelligently. Verify independently. Pay securely.*
+
+[![Live Demo](https://img.shields.io/badge/Live_Demo-intentlock--commerce.vercel.app-0D9488?style=for-the-badge&logo=vercel)](https://intentlock-commerce.vercel.app)
+[![Vitest](https://img.shields.io/badge/Tests-347%20Passed-brightgreen?style=for-the-badge&logo=vitest)](https://vitest.dev)
+[![PayPal](https://img.shields.io/badge/PayPal-REST_API_v2_Sandbox-003087?style=for-the-badge&logo=paypal)](https://developer.paypal.com)
+[![Ed25519](https://img.shields.io/badge/Cryptography-RFC_8032_Ed25519-indigo?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8032)
+[![Node](https://img.shields.io/badge/Node.js-20.0+-339933?style=for-the-badge&logo=node.js)](https://nodejs.org)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react)](https://react.dev)
+
+</div>
 
 ---
 
-## 5-Member Team Architecture & Integration
+## 1. Executive Summary & Vision
 
-- **Member 1 (AI Commerce Agent - THIS SERVICE):** Understands user shopping intents, searches and filters catalog items, manages the cart, and submits `purchase_intent` payloads to Member 2 for authorization.
-- **Member 2 (IntentLock Commerce Security Engine):** Validates all 5 security dimensions, computes composite risk, and issues cryptographically signed Ed25519 authorization tokens.
-- **Member 3 (Payment Orchestration / PayPal Gateway):** Verifies the compact Ed25519 token using Member 2's public key before initiating PayPal payment capture.
-- **Member 4 (Frontend UI / Fulfillment):** Calls the AI Commerce Agent chat interface and renders product recommendations and shopping carts.
-- **Member 5 (Backend Integration & Analytics):** Manages shared database storage, authentication, and audit log inspection.
+Autonomous AI agents are transforming digital commerce by shifting the consumer experience from manual browsing to natural-language delegation. However, autonomous purchasing creates severe financial vulnerabilities: prompt injections, price slippage, hidden recurring fees, merchant spoofing, and rogue checkout modifications.
+
+**IntentLock Commerce** introduces a dual-engine architecture:
+1. **AI Commerce Agent:** Discovers products, analyzes specifications, balances tradeoffs, and formulates structured purchase proposals based on natural language user prompts.
+2. **Independent Security Engine (IntentLock Firewall):** An isolated, deterministic verification firewall that evaluates the proposed transaction against original user intents and security policies before any payment can be authorized.
+
+> **The Golden Principle:**  
+> *AI can discover, recommend, and prepare purchases, but it can never authorize or execute a payment.*  
+> Payments are strictly executed via PayPal Sandbox only after deterministic validation, cryptographic authorization (RFC 8032 Ed25519), and explicit, non-bypassable user confirmation.
 
 ---
 
-# Member 1: AI Commerce Agent (Node.js + Express)
+## 2. System Architecture & End-to-End Pipeline
 
-The "brain" of the shopping experience. It understands what a user wants, finds and recommends products, builds a cart, and hands a **purchase intent** to IntentLock (Member 2) -> PayPal (Member 3).
-**It never takes payment itself.**
-
-## Quick start (Node 18+)
-```bash
-npm install
-npm run check      # runs all 18 unit tests + the 17-point final verification
-npm run demo       # scripted shopping conversation
-npm run start:agent # starts Member 1 agent API on http://localhost:8000
-curl -X POST localhost:8000/agent/chat -H "Content-Type: application/json" \
-     -d '{"user_id":"u1","message":"black running shoes under $80"}'
-```
-
-## How it works (explain this to judges)
-```
-User message -> parseQuery (category, color, price, brand, tags) -> detectIntent
-             -> searchProducts (catalog only, in-stock only) -> recommendations + reasons
-             -> cart (stock limits) -> checkout = PURCHASE INTENT (PENDING_AUTHORIZATION)
-             -> IntentLock authorizes -> PayPal charges
-```
-
-| Task area | Where | What it does |
-|---|---|---|
-| Product data | `agent.js` CATALOG | 16 sample products with one schema (id, name, category, brand, color, price, stock, rating, tags) |
-| Language understanding | `parseQuery`, `detectIntent` | "black running shoes under $80" -> filters; follow-ups ("what about in white?", "cheaper ones") via session memory |
-| LLM tool-calling | `llm_tools.js` | Optional Claude layer with 4 tools; the model picks tools, facts come only from the catalog |
-| Recommendations | `recommendSimilar`, `crossSell` | Similar items and "often bought together", each with a plain-English reason |
-| Integration | `prepareCheckout`, `api.js` | Purchase-intent JSON for Member 2; REST API for Member 4 |
-| Safety | `INJECTION`, stock checks | Blocks prompt injection, hides out-of-stock, enforces stock limits, relaxes empty searches |
-| Testing | `test/`, `verify.js` | 18 unit tests + 17 end-to-end checks |
-
-## Files
-| File | Purpose |
-|---|---|
-| agent.js | Catalog, search, parsing, recommendations, cart, checkout handoff, guardrails (no dependencies) |
-| api.js | All routes + validation, framework-free so it is fully unit tested |
-| server.js | Thin Express wrapper (CORS + JSON body) around api.js |
-| llm_tools.js | Optional Claude tool-calling version (`npm i @anthropic-ai/sdk`, set `ANTHROPIC_API_KEY`) |
-| demo.js | Scripted conversation |
-| verify.js | Final checklist, one PASS/FAIL line per requirement |
-| test/ | Unit tests (`node:test`) |
-| TEST_REPORT.md | Saved output of the final test run |
-
-## API contract
-| Method | Path | Used by |
-|---|---|---|
-| POST | /agent/chat | Member 4 (chat) |
-| GET | /products, /products/:id | Member 4 (product grid) |
-| GET | /cart/:user_id | Member 4 (cart) |
-| GET | /health | everyone |
-
-**Request:** `{"user_id": "u1", "message": "..."}`
-**Response:** `{reply, intent, products[], cart[], purchase_intent | null}`
-**Errors:** 422 `{detail}` bad input, 404 unknown route/product, 400 invalid JSON.
-
-**purchase_intent** (what Member 2 receives at checkout):
-```json
-{
-  "intent_id": "INT-8CB122C518",
-  "source": "ai_commerce_agent",
-  "user_id": "u1",
-  "items": [{"product_id": "P001", "name": "AeroRun Pro Running Shoes", "qty": 2, "unit_price": 79}],
-  "total": 158,
-  "currency": "USD",
-  "stated_intent": "checkout",
-  "status": "PENDING_AUTHORIZATION",
-  "next_step": "POST to IntentLock /authorize; only if APPROVED -> PayPal create-order"
-}
+```mermaid
+flowchart TD
+    User([Buyer / User Prompt]) --> M1[Member 1: AI Commerce Agent\nNatural Language Intent Parsing & Catalog Ranking]
+    M1 -->|Structured Purchase Proposal\nCanonical Minor Units| M2[Member 2: IntentLock Security Engine\nDeterministic Rules 0-4 Evaluation]
+    
+    subgraph Security Firewall & Cryptographic Lease
+        M2 --> Rule0[Rule 0: RFC 8785 Snapshot Hash Integrity]
+        M2 --> Rule1[Rule 1: Budget Ceiling & Drip Pricing Check]
+        M2 --> Rule2[Rule 2: Merchant & Payee Whitelist]
+        M2 --> Rule3[Rule 3: Hidden Subscription & Recurring Guard]
+        M2 --> Rule4[Rule 4: Specification Deviation Detection]
+    end
+    
+    Rule0 & Rule1 & Rule2 & Rule3 & Rule4 --> Decision{Policy Outcome}
+    
+    Decision -->|PASS| Lease[Issue Ed25519 Auth Lease\nKey ID: KEY_INTENTLOCK_DEV_V2]
+    Decision -->|REVIEW| Gate2[Gate 2: User Diff Acknowledgment Required]
+    Decision -->|BLOCK| Halt[Gate 1: Hard Blocked - No Payment Issued]
+    
+    Gate2 -->|Acknowledged| Lease
+    
+    Lease --> M4[Member 4: React 19 Frontend\nProtected Checkout & Gate 3 Confirmation]
+    
+    subgraph Payment Execution & Settlement
+        M4 --> Choice{Payment Mode}
+        Choice -->|Interactive Sandbox UI| Modal[PayPal Sandbox Checkout Modal\nOr Live sandbox.paypal.com Window]
+        Choice -->|Autonomous Agent Capture| M3[Member 3: PayPal Payment Service\nOrders REST API v2 + Monotonic Fencing]
+        Modal --> M3
+        M3 --> PayPal[(PayPal REST API v2 Sandbox)]
+        PayPal --> Capture[Atomic Capture & Settled Funds]
+    end
+    
+    Capture --> M5[Member 5: Backend Foundation & Ledger\nMongoDB Atlas Audit Trails & Concurrency Locks]
+    M5 --> Receipt([Verified Transaction Receipt\nAudit Ledger Stored])
 ```
 
 ---
 
-# Member 2: IntentLock Security Engine
+## 3. Five-Member Team Architecture
 
-## Architecture Overview
+The project is built on a modular, collaborative 5-member microservice architecture:
 
-```
-intentlock/
-├── core/                         # Shared Foundation
-│   ├── config.py                 # Security thresholds & system parameters
-│   ├── models.py                 # Pydantic-compatible data models & serialization
-│   └── errors.py                 # Typed security exception hierarchy
-├── workstream1_verification/     # Workstream 1: Flash Tier
-│   ├── merchant_verifier.py      # Domain age, typosquatting (paypa1), and reputation
-│   └── price_verifier.py         # Negative price exploit, inflation, and subtotal check
-├── workstream2_hidden_costs/     # Workstream 2: Flash Tier
-│   ├── fee_detector.py           # Drip pricing & junk fee descriptor detection
-│   └── subscription_guard.py     # Deceptive trial traps & covert subscription detector
-├── workstream3_threat_intel/     # Workstream 3: Pro Tier
-│   ├── prompt_injection.py       # Direct/indirect jailbreaks & system prompt overrides
-│   ├── canary.py                 # Cryptographic canary token generator & tracker
-│   └── sanitizer.py              # Unicode homoglyphs, zero-width spaces, AST tampering
-│   └── threat_scorer.py          # Multi-factor threat risk aggregator
-├── workstream4_crypto_auth/      # Workstream 4: Pro Tier
-│   ├── canonicalizer.py          # RFC 8785 JSON Canonicalization (JCS) & SHA-512
-│   ├── signer.py                 # RFC 8032 Ed25519 pure Python asymmetric cryptography
-│   └── nonce_guard.py            # Monotonic nonces, epoch windows, and replay defense
-├── workstream5_api_db/           # Workstream 5: Flash Tier
-│   ├── app.py                    # Flask application factory with security headers
-│   ├── routes.py                 # REST API endpoints (/verify, /authorize, /audit, /health)
-│   ├── database.py               # SQLite audit repository with foreign-key token store
-│   └── team_contracts.py         # Inter-team contracts for Members 1, 3, 4, and 5
-├── engine.py                     # Unified coordinator engine pipeline
-└── tests/                        # Workstream 6: Pro Tier
-    ├── test_workstream1_verif.py
-    ├── test_workstream2_costs.py
-    ├── test_workstream3_threat.py
-    ├── test_workstream4_crypto.py
-    ├── test_workstream5_api.py
-    └── test_adversarial_audit.py # Red-team attack suite (jailbreaks, replays, bit-flipping)
-```
-
-## REST API Reference
-
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `GET` | `/api/v1/health` | Healthcheck, engine version, and Ed25519 public key. |
-| `POST` | `/api/v1/intent/verify` | Runs verification pipeline without issuing tokens. |
-| `POST` | `/api/v1/intent/authorize` | Verifies intent, logs audit record, and issues Ed25519 token. |
-| `GET` | `/api/v1/intent/audit/<id>` | Retrieves cryptographic audit trail and token record. |
-
-## Cryptographic Key Management (Ed25519)
-
-- **Trusted Public Key (RFC 8032):**
-  ```
-  4df93f582d2b31f519c1982bb55c1aa46b4d64498fa04164eeb36c44c0f1cca9
-  ```
-- **Public Key File:** `keys/intentlock_public_key.hex`
-- **Private Key Configuration (Zero Git Exposure):**
-  The private key is confidential and ignored by Git. Supply via `.env` with `INTENTLOCK_PRIVATE_KEY_HEX=<64_hex_chars>`.
+| Member | Domain & Ownership | Tech Stack | Key Responsibilities |
+|:---|:---|:---|:---|
+| **Member 1** | **AI Commerce Agent** | Node.js, Express, Claude Tool-Calling | Extracts shopping intents, parses natural language constraints, manages user carts, filters out-of-stock items, and prepares structured `purchase_intent` proposals. |
+| **Member 2** | **IntentLock Security Engine** | Python 3.11, Flask, Pure Ed25519, SQLite | Evaluates 5 security dimensions, detects prompt injection & hidden fees, computes canonical hashes (RFC 8785), and signs Ed25519 authorization tokens. |
+| **Member 3** | **Payment Orchestration & PayPal** | Node.js, PayPal REST API v2, Webhooks | Verifies Ed25519 tokens, checks single-use nonces, manages idempotency keys, dispatches orders to PayPal Sandbox, and executes atomic captures under monotonic fencing. |
+| **Member 4** | **Frontend UI & User Experience** | React 19, Vite, Tailwind CSS 4, Lucide | Responsive shopping interface, natural language assistant, product compare matrix, security drawer, interactive PayPal sandbox checkout modal, and transaction ledger. |
+| **Member 5** | **Backend Integration & Architecture Lead** | Node.js, Express, MongoDB / Mongoose | Overall architecture orchestration, strict route guards, CSRF bootstrapping, Argon2id authentication, 14 Mongoose models, and live Vercel production deployment. |
 
 ---
 
-# Member 4: Frontend UI
+## 4. Threat Vector Defense Matrix
 
-## Technology Stack
+IntentLock Commerce deterministically mitigates the seven primary failure modes of autonomous commerce agents:
 
-- React 19
-- Vite
-- Tailwind CSS 4
-- React Router
-- Axios
-- Lucide React
-- Recharts
+| # | Threat Vector | Real-World Attack Scenario | IntentLock Defense |
+|:---:|:---|:---|:---|
+| **1** | **Spec Deviation** | AI quietly selects a cheaper, mismatched variant (e.g. clicky vs tactile switches) to fit the budget. | Non-critical spec mismatches trigger **`REVIEW`**, requiring explicit buyer diff acknowledgment before unlocking payment. |
+| **2** | **Price Escalation** | AI proceeds when base price matches, but shipping/handling drives total over the authorized budget. | Total cost evaluation enforces a hard budget ceiling; any overrun results in a deterministic **`BLOCK`**. |
+| **3** | **Merchant Spoofing** | Compromised agent redirects checkout to an unverified third-party marketplace seller. | Payee verification against user-approved directories and verified PayPal merchant IDs; mismatches trigger **`BLOCK`**. |
+| **4** | **Hidden Subscriptions** | One-time purchase offer secretly enrolls user in a recurring monthly subscription charge. | Structural checkout analysis detects recurring billing schedules and non-zero cycles; triggers immediate **`BLOCK`**. |
+| **5** | **Prompt Injection** | Product description text contains hidden prompt instructing agent to approve immediate purchase. | External product content treated as untrusted data; LLM output has zero authorization authority. |
+| **6** | **Replay & Duplicate Pay** | Network retry or compromised payload causes duplicate payment authorization execution. | Single-use nonces managed via an atomic two-phase recovery state machine with strict idempotency keys. |
+| **7** | **Cart Substitution** | Item SKU, taxes, or shipping mutate after user approval but before payment capture. | Cryptographic binding via Ed25519 signature over an RFC 8785 canonical hash voids payment upon any alteration. |
 
-## Frontend Features
+---
 
-- User authentication interface
-- Login and registration pages
-- IntentLock dashboard
-- Product and shopping interfaces
-- API integration with the backend
-- Security and payment interface
+## 5. Live Production Deployment & Demo Walkthrough
 
-## Frontend Setup
+### 🌐 Live Application URL
+**[https://intentlock-commerce.vercel.app](https://intentlock-commerce.vercel.app)**
 
-Install dependencies:
+### 🚀 1-Minute Live Demo Tour
+
+1. **Strict Route Protection & Authentication:**
+   - Visit the root URL `https://intentlock-commerce.vercel.app/`.
+   - Unauthenticated visitors are automatically redirected to `/login`.
+   - Click **⚡ Enter as Demo Buyer (1-Click Instant Access)** to enter with pre-configured buyer credentials (`demo.buyer@intentlock.io`), or register a new account on `/register`.
+2. **AI Shopping Assistant ([`/shopping`](https://intentlock-commerce.vercel.app/shopping)):**
+   - Natural language search bar with dynamic parsing (e.g., *"Wireless mechanical keyboard under $120"*).
+   - Dynamic budget comparison: product badges dynamically evaluate prices against the active ceiling (`Within Budget` in green vs `Exceeds Budget` in amber).
+   - Click **"Select & Configure"** to transition the selected proposal to the Security Gateway.
+3. **Product Comparison ([`/compare`](https://intentlock-commerce.vercel.app/compare)):**
+   - Multi-column side-by-side spec comparison (Soundcore vs Sony vs JBL) in standard USD pricing.
+4. **Deterministic Security Firewall ([`/checkout`](https://intentlock-commerce.vercel.app/checkout)):**
+   - Interactive policy outcome simulator:
+     - `🟢 PASS (Happy Path)`: Grants RFC 8032 Ed25519 authorization lease (`KEY_INTENTLOCK_DEV_V2`).
+     - `🟡 REVIEW (Spec Diff)`: Intercepts tactile vs linear switch difference; prompts buyer diff acknowledgment.
+     - `🔴 BLOCK (Over Budget)`: Evaluates against $50 limit; deterministically blocks transaction.
+     - `🔴 BLOCK (Payee Mismatch)`: Detects rogue merchant ID; halts Gate 3 permanently.
+5. **PayPal Sandbox Payment (Gate 3):**
+   - Check the authorization confirmation checkbox and click **Authorize & Create PayPal Order**.
+   - **Interactive Mode:** Click the yellow **Open PayPal Sandbox Payment Interface** button to open the authentic PayPal Sandbox checkout modal (`buyer@sandbox.paypal.com` with a simulated balance of `$1,000.00 USD`). Click **Pay Now** to approve.
+   - **Autonomous Mode:** Click **Complete & Capture Order** for instant 1-click autonomous agent settlement.
+6. **Transaction History & Audit Trail ([`/transactions`](https://intentlock-commerce.vercel.app/transactions)):**
+   - Real-time ledger updates: newly captured orders immediately prepend to the top of the transaction history with their capture ID (`CAP_...`), timestamp, status (`COMPLETED`), and security stamp (`Verified (Ed25519 Signed)`).
+
+---
+
+## 6. Technology Stack
+
+### Frontend Client
+- **Framework:** React 19, Vite 8.3
+- **Styling:** Tailwind CSS 4.3 (Teal + Warm White FinTech design system)
+- **Icons & UI:** Lucide React, Canvas Confetti
+- **State & Routing:** React Router v7, Context API (`AuthContext`, `ToastContext`)
+- **Hosting:** Vercel Edge Network (Global CDN with SPA rewrites)
+
+### Backend Services & Security
+- **Runtime:** Node.js (v20+) & Python (v3.11+)
+- **API Frameworks:** Express.js 4 (Node), Flask (Python)
+- **Database & ODM:** MongoDB Atlas, Mongoose 8.8 (14 models, BSON Long minor units, compound unique indexes)
+- **Cryptography:** Ed25519 (RFC 8032), RFC 8785 Canonical JSON (JCS), SHA-256 / SHA-512
+- **Password Security:** Argon2id hashing
+- **Security Middleware:** Helmet CSP headers, CSRF token validation, express-rate-limit
+
+### Payment Gateway
+- **Provider:** PayPal REST API v2
+- **Environment:** PayPal Sandbox (`https://api-m.sandbox.paypal.com`)
+- **Fencing:** Monotonic fencing tokens, stable idempotency keys, single-use nonces
+
+---
+
+## 7. Local Development Quickstart
+
+### Prerequisites
+- Node.js >= 20.0.0
+- npm >= 10.0.0
+- MongoDB (local Community Server or MongoDB Atlas URI)
+- Python >= 3.11 (optional for running Python security engine locally)
+
+### Installation
 
 ```bash
+# 1. Clone repository
+git clone https://github.com/adityasing9/PayPal.git
+cd PayPal
+
+# 2. Install Node.js dependencies
 npm install
+
+# 3. Configure environment
+cp .env.example .env
+# Edit .env with your MongoDB URI and PayPal Sandbox credentials if available
+```
+
+### Running the Application
+
+```bash
+# Run backend server (Port 3000 / 5001)
+npm start
+
+# Run frontend development server (Port 5173 / Vite)
 npm run dev:frontend
+
+# Run Member 1 AI Commerce Agent API (Port 8000)
+npm run start:agent
+```
+
+---
+
+## 8. Verification & Test Suite
+
+The project includes an exhaustive testing suite covering unit, integration, crypto-interoperability, and red-team attack scenarios:
+
+```bash
+# Run Vitest test suite (347 tests across 28 files)
+npm test
+
+# Run Member 1 verification suite (18 unit tests + 17-point audit)
+npm run check
+
+# Run linter
+npm run lint
+
+# Build production bundle
 npm run build
-npm run preview
+```
 
-## Frontend Structure
+### Test Coverage Highlights
+- `tests/unit/cryptoUtils.test.js`: RFC 8032 Ed25519 keypair verification, signature generation, and tamper detection.
+- `tests/unit/canonicalJson.test.js`: RFC 8785 JCS deterministic sorting and UTF-16 character handling.
+- `tests/unit/securityFirewall.test.js`: Deterministic rules 0 through 4 (PASS, REVIEW, BLOCK matrix).
+- `tests/unit/paypalIntegration.test.js`: PayPal Orders REST API v2, atomic capture, and webhook verification.
+- `tests/unit/intentLockV2Verifier.test.js`: Python Flask-to-Node cross-language cryptographic token interoperability.
+- `tests/integration/e2eFlow.test.js`: Full multi-member end-to-end purchase lifecycle (Prompt ➔ Intent ➔ Firewall ➔ PayPal Order ➔ Capture).
 
-src/
-+-- api/
-+-- assets/
-+-- components/
-+-- context/
-+-- pages/
-+-- App.jsx
-+-- index.css
+---
 
-## API Integration
+## 9. API Reference Summary
 
-The frontend uses Axios-based API modules for:
+### Authentication & Session (`/api/auth`)
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `GET` | `/api/auth/csrf` | Bootstraps or refreshes the CSRF token (`X-CSRF-Token`). |
+| `POST` | `/api/auth/register` | Registers a new buyer account; hashes password with Argon2id. |
+| `POST` | `/api/auth/login` | Authenticates buyer credentials; sets HttpOnly session cookie. |
+| `GET` | `/api/auth/me` | Retrieves the currently authenticated buyer profile. |
+| `POST` | `/api/auth/logout` | Terminates active session; clears session cookie and storage. |
 
-- Authentication
-- Products
-- Intents
-- Payments
-- Proposals
-- Security
+### Shopping & Security (`/api`)
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `POST` | `/api/intents` | Creates an intent constraint record with max budget ceiling. |
+| `GET` | `/api/products` | Queries verified merchant catalog with category and price filters. |
+| `POST` | `/api/security/verify` | Executes 5-dimension deterministic firewall scan; issues Ed25519 lease. |
+
+### Payments & PayPal Gateway (`/api/payments`)
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `POST` | `/api/payments/create-order` | Dispatches validated proposal to PayPal Sandbox REST API v2. |
+| `POST` | `/api/payments/capture-order` | Executes atomic financial capture under monotonic fencing token. |
+| `POST` | `/api/payments/recover-session` | Recovers in-flight PayPal orders safely across cross-origin redirects. |
+| `POST` | `/api/webhooks/paypal` | Ingests and verifies PayPal webhooks with signature verification. |
+
+---
+
+## 10. Repository Structure
+
+```
+PayPal/
+├── src/                          # Node.js Fullstack & Backend Source
+│   ├── config/                   # Database (Mongoose), env validation, keys
+│   ├── controllers/              # Auth, intents, proposals, payments, security
+│   ├── middleware/               # Rate limiters, CSRF, Helmet, error handlers
+│   ├── models/                   # 14 Mongoose Data Models (User, Transaction, etc.)
+│   ├── repositories/             # Authorization, JobLock, PaymentTransaction repos
+│   ├── routes/                   # Modular Express routers (/auth, /payments, etc.)
+│   ├── services/                 # AuthService, PayPalService, SecurityFirewallService
+│   ├── utils/                    # RFC 8032 Ed25519, RFC 8785 canonical JSON
+│   ├── pages/                    # React 19 Pages (Dashboard, Shopping, Checkout, etc.)
+│   ├── components/               # Navbar, layout shells, interactive UI widgets
+│   ├── context/                  # AuthContext, ToastContext
+│   ├── app.js                    # Express app factory with Helmet & CORS
+│   └── server.js                 # HTTP server bootstrapper with DB connection
+├── intentlock/                   # Python Security Engine (Member 2)
+│   ├── core/                     # Config, models, errors
+│   ├── workstream1_verification/ # Price & merchant verifiers
+│   ├── workstream2_hidden_costs/ # Drip pricing & subscription detector
+│   ├── workstream3_threat_intel/ # Prompt injection & threat scoring
+│   ├── workstream4_crypto_auth/  # RFC 8785 JCS, Ed25519 signer, nonce guard
+│   └── workstream5_api_db/       # Flask REST API, audit repo, inter-team contracts
+├── tests/                        # Comprehensive Testing Infrastructure
+│   ├── unit/                     # Unit suites (crypto, schemas, models, PayPal)
+│   ├── integration/              # Multi-member orchestration & concurrency tests
+│   └── helpers/                  # Test clients, Flask service runners, mock data
+├── contracts/                    # Team handoff specifications & test vectors
+├── docs/                         # Architecture, API contracts, deployment guides
+├── public/                       # Static assets & icons
+├── vercel.json                   # Vercel production routing & configuration
+└── package.json                  # Dependencies, scripts, and build configuration
+```
+
+---
+
+## 11. License
+
+This project is licensed under the MIT License — see the LICENSE file for details.
+Developed for the **PayPal AI Hackathon 2026**.
